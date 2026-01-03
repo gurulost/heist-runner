@@ -1112,15 +1112,19 @@ export default function Game() {
 
     // Check collisions
     const checkCollision = (p: Player, obs: Obstacle) => {
+      if (p.invincible > 0) return false;
       // Ignore warning signs
       if (obs.type === "warning") return false;
 
-      const buffer = 5;
+      const pLeft = p.x;
+      const pRight = p.x + p.width;
+      const pTop = p.y;
+      const pBottom = p.y + (p.state === "sliding" ? SLIDE_HEIGHT : p.height);
+      const groundY = getTerrainHeight(obs.x + obs.width / 2);
 
       // Low Beam Collision: Hitting the beam while NOT sliding
       if (obs.type === "low_beam") {
         const obsCenterX = obs.x + 10; // Center of beam
-        const obsGroundY = getTerrainHeight(obsCenterX);
         // Beam is at groundY - 60 to groundY - 50.
         // Player height is 50 (running) or 25 (sliding).
         // If running, top of head is at groundY - 50.
@@ -1143,7 +1147,7 @@ export default function Game() {
           return pRight > spikeLeft && pLeft < spikeRight && pBottom > spikeTop && pTop < spikeBottom;
 
         case "gap":
-          const playerCenterXGap = player.x + player.width / 2;
+          const playerCenterXGap = p.x + p.width / 2;
           const gapLeft = obs.x - 10;
           const gapRight = obs.x + obs.width + 10;
 
