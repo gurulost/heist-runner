@@ -43,6 +43,27 @@ export class MemStorage implements IStorage {
   }
 
   async createHighScore(insertScore: InsertHighScore): Promise<HighScore> {
+    // Check if player already has a score - only keep their best
+    const existingScores = Array.from(this.highScores.values());
+    const existingPlayerScore = existingScores.find(
+      s => s.playerName.toLowerCase() === insertScore.playerName.toLowerCase()
+    );
+
+    if (existingPlayerScore) {
+      // Only update if new score is higher
+      if (insertScore.score > existingPlayerScore.score) {
+        const updatedScore: HighScore = {
+          ...insertScore,
+          id: existingPlayerScore.id
+        };
+        this.highScores.set(existingPlayerScore.id, updatedScore);
+        return updatedScore;
+      }
+      // Return existing score if new one isn't higher
+      return existingPlayerScore;
+    }
+
+    // New player - create new entry
     const id = randomUUID();
     const highScore: HighScore = { ...insertScore, id };
     this.highScores.set(id, highScore);

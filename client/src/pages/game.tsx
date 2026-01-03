@@ -141,7 +141,11 @@ export default function Game() {
     scoreValue: 0,
     coinsCollected: 0,
     frameCount: 0,
-    keys: { up: false, down: false, left: false, right: false },
+    keys: { up: false, down: false },
+    lastDisplayedScore: 0,
+    lastDisplayedDistance: 0,
+    lastDisplayedCoins: 0,
+    lastDisplayedWarning: 0,
     worldX: 0,
     nextTerrainX: 0,
     lastObstacleX: 0,
@@ -253,8 +257,10 @@ export default function Game() {
     }
 
     if (finalScore > 0) {
+      // Validate player name - use trimmed name or default to 'Player'
+      const validatedName = playerName.trim() || 'Player';
       submitScoreMutation.mutate({
-        playerName,
+        playerName: validatedName,
         score: finalScore,
         distance: finalDistance,
         coins: finalCoins,
@@ -351,12 +357,6 @@ export default function Game() {
         e.preventDefault();
         game.keys.down = true;
       }
-      if (e.key === "ArrowLeft" || e.key === "a") {
-        game.keys.left = true;
-      }
-      if (e.key === "ArrowRight" || e.key === "d") {
-        game.keys.right = true;
-      }
       if (e.key === "Escape" && gameState === "playing") {
         togglePause();
       }
@@ -372,12 +372,6 @@ export default function Game() {
       }
       if (e.key === "ArrowDown" || e.key === "s") {
         game.keys.down = false;
-      }
-      if (e.key === "ArrowLeft" || e.key === "a") {
-        game.keys.left = false;
-      }
-      if (e.key === "ArrowRight" || e.key === "d") {
-        game.keys.right = false;
       }
     };
 
@@ -994,7 +988,7 @@ export default function Game() {
           }
         }
       });
-      game.coinsList = game.coinsList.filter(c => c.x > game.cameraX - 50);
+      game.coinsList = game.coinsList.filter(c => c.x > game.cameraX - 200);
 
       game.particles = game.particles.filter(particle => {
         particle.x += particle.vx;
@@ -1027,9 +1021,20 @@ export default function Game() {
 
       game.terrain = game.terrain.filter(seg => seg.endX > game.cameraX - 200);
 
-      setScore(game.scoreValue);
-      setDistance(Math.floor(game.distanceTraveled));
-      setCoins(game.coinsCollected);
+      // Only update React state when values change (reduces re-renders)
+      if (game.scoreValue !== game.lastDisplayedScore) {
+        setScore(game.scoreValue);
+        game.lastDisplayedScore = game.scoreValue;
+      }
+      const currentDistance = Math.floor(game.distanceTraveled);
+      if (currentDistance !== game.lastDisplayedDistance) {
+        setDistance(currentDistance);
+        game.lastDisplayedDistance = currentDistance;
+      }
+      if (game.coinsCollected !== game.lastDisplayedCoins) {
+        setCoins(game.coinsCollected);
+        game.lastDisplayedCoins = game.coinsCollected;
+      }
     };
 
     const render = () => {
@@ -1328,6 +1333,7 @@ export default function Game() {
               className="w-24 h-24 rounded-full bg-red-500/30 border-red-400/50 text-white text-lg font-bold active:bg-red-500/50"
               onTouchStart={(e) => { e.preventDefault(); gameRef.current.keys.up = true; }}
               onTouchEnd={(e) => { e.preventDefault(); gameRef.current.keys.up = false; }}
+              onTouchCancel={(e) => { e.preventDefault(); gameRef.current.keys.up = false; }}
               onMouseDown={() => { gameRef.current.keys.up = true; }}
               onMouseUp={() => { gameRef.current.keys.up = false; }}
               onMouseLeave={() => { gameRef.current.keys.up = false; }}
@@ -1341,6 +1347,7 @@ export default function Game() {
               className="w-24 h-24 rounded-full bg-orange-500/30 border-orange-400/50 text-white text-lg font-bold active:bg-orange-500/50"
               onTouchStart={(e) => { e.preventDefault(); gameRef.current.keys.down = true; }}
               onTouchEnd={(e) => { e.preventDefault(); gameRef.current.keys.down = false; }}
+              onTouchCancel={(e) => { e.preventDefault(); gameRef.current.keys.down = false; }}
               onMouseDown={() => { gameRef.current.keys.down = true; }}
               onMouseUp={() => { gameRef.current.keys.down = false; }}
               onMouseLeave={() => { gameRef.current.keys.down = false; }}
