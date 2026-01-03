@@ -301,11 +301,10 @@ export default function Game() {
       distance: finalDistance,
       coins: finalCoins,
     });
-  }
 
     setGameState("gameover");
-  soundRef.current.playGameOver();
-}, [highScore, playerName, submitScoreMutation]);
+    soundRef.current.playGameOver();
+  }, [highScore, playerName, submitScoreMutation]);
 
 const spawnVine = useCallback((worldX: number) => {
   const game = gameRef.current;
