@@ -407,6 +407,25 @@ export default function Game() {
     let animationId: number;
     const game = gameRef.current;
 
+    // Robust initialization for HMR stability
+    if (!game.rain) {
+      game.rain = Array.from({ length: 100 }, () => ({
+        x: Math.random() * CANVAS_WIDTH,
+        y: Math.random() * CANVAS_HEIGHT,
+        l: Math.random() * 20 + 10,
+        v: Math.random() * 10 + 10,
+      }));
+    }
+    if (!game.fireflies) {
+      game.fireflies = Array.from({ length: 20 }, () => ({
+        x: Math.random() * CANVAS_WIDTH,
+        y: Math.random() * CANVAS_HEIGHT,
+        s: Math.random() * 2 + 1,
+        o: Math.random() * Math.PI * 2,
+      }));
+    }
+    if (game.shake === undefined) game.shake = 0;
+
     const drawBackground = () => {
       // Deep Jungle Sky Gradient
       const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -886,7 +905,7 @@ export default function Game() {
       const p = game.player;
       const speedFactor = p.vx * 0.5;
 
-      game.rain.forEach(r => {
+      game.rain.forEach((r: { x: number, y: number, l: number, v: number }) => {
         ctx.beginPath();
         ctx.moveTo(r.x, r.y);
         ctx.lineTo(r.x - speedFactor, r.y + r.l);
@@ -905,7 +924,7 @@ export default function Game() {
     };
 
     const drawFireflies = () => {
-      game.fireflies.forEach(f => {
+      game.fireflies.forEach((f: { x: number, y: number, s: number, o: number }) => {
         const glow = Math.sin(game.frameCount * 0.05 + f.o) * 0.5 + 0.5;
         ctx.fillStyle = `rgba(200, 255, 100, ${glow * 0.8})`;
         ctx.shadowBlur = glow * 10;
