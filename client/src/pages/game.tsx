@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Play, RotateCcw, Pause, Volume2, VolumeX, Trophy, AlertTriangle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useSound } from "@/hooks/useSound";
 import type { HighScore } from "@shared/schema";
 
 type GameState = "start" | "playing" | "paused" | "gameover";
@@ -93,6 +94,13 @@ export default function Game() {
   });
   const [policeWarning, setPoliceWarning] = useState(0);
 
+  // Sound effects
+  const { playJump, playCoin, playGameOver, playSiren, playVineGrab, playVineRelease } = useSound({ enabled: soundEnabled });
+
+  // Refs for sound functions to use in game loop without re-render dependencies
+  const soundRef = useRef({ playJump, playCoin, playGameOver, playSiren, playVineGrab, playVineRelease });
+  soundRef.current = { playJump, playCoin, playGameOver, playSiren, playVineGrab, playVineRelease };
+
   const { data: leaderboard = [] } = useQuery<HighScore[]>({
     queryKey: ["/api/highscores"],
   });
@@ -157,8 +165,8 @@ export default function Game() {
   const generateTerrain = useCallback((startX: number, count: number) => {
     const game = gameRef.current;
     let currentX = startX;
-    let currentY = game.terrain.length > 0 
-      ? game.terrain[game.terrain.length - 1].endY 
+    let currentY = game.terrain.length > 0
+      ? game.terrain[game.terrain.length - 1].endY
       : BASE_GROUND_Y;
 
     for (let i = 0; i < count; i++) {
@@ -215,9 +223,9 @@ export default function Game() {
     game.lastCoinX = 0;
     game.vineSwingTime = 0;
     game.vineGrabCooldown = 0;
-    
+
     generateTerrain(0, 20);
-    
+
     setScore(0);
     setDistance(0);
     setCoins(0);
@@ -238,12 +246,12 @@ export default function Game() {
     const finalScore = game.scoreValue;
     const finalDistance = Math.floor(game.distanceTraveled);
     const finalCoins = game.coinsCollected;
-    
+
     if (finalScore > highScore) {
       setHighScore(finalScore);
       localStorage.setItem("runnerHighScore", finalScore.toString());
     }
-    
+
     if (finalScore > 0) {
       submitScoreMutation.mutate({
         playerName,
@@ -252,18 +260,19 @@ export default function Game() {
         coins: finalCoins,
       });
     }
-    
+
     setGameState("gameover");
+    soundRef.current.playGameOver();
   }, [highScore, playerName, submitScoreMutation]);
 
   const spawnObstacle = useCallback((worldX: number) => {
     const game = gameRef.current;
     const types: Obstacle["type"][] = ["spike", "log", "gap", "ramp"];
     const type = types[Math.floor(Math.random() * types.length)];
-    
+
     let width = 60;
     let height = 40;
-    
+
     switch (type) {
       case "spike":
         width = 30;
@@ -282,7 +291,7 @@ export default function Game() {
         height = 50;
         break;
     }
-    
+
     game.obstacles.push({
       x: worldX,
       type,
@@ -428,7 +437,7 @@ export default function Game() {
 
       ctx.fillStyle = "#3d2817";
       ctx.beginPath();
-      
+
       let started = false;
       for (const segment of game.terrain) {
         if (segment.endX < visibleStart) continue;
@@ -443,7 +452,7 @@ export default function Game() {
         }
         ctx.lineTo(screenEndX, segment.endY);
       }
-      
+
       ctx.lineTo(canvas.width + 100, canvas.height);
       ctx.lineTo(-100, canvas.height);
       ctx.closePath();
@@ -472,9 +481,9 @@ export default function Game() {
     const drawPlayer = () => {
       const p = game.player;
       const screenX = p.x - game.cameraX;
-      
+
       ctx.save();
-      
+
       if (p.invincible > 0 && Math.floor(game.frameCount / 5) % 2 === 0) {
         ctx.globalAlpha = 0.5;
       }
@@ -490,12 +499,12 @@ export default function Game() {
       if (p.state === "sliding") {
         ctx.fillStyle = "#1a1a1a";
         ctx.fillRect(screenX, p.y + p.height - SLIDE_HEIGHT, p.width + 10, SLIDE_HEIGHT - 5);
-        
+
         for (let i = 0; i < 4; i++) {
           ctx.fillStyle = i % 2 === 0 ? "#ffffff" : "#1a1a1a";
           ctx.fillRect(screenX + i * 12, p.y + p.height - SLIDE_HEIGHT, 12, SLIDE_HEIGHT - 5);
         }
-        
+
         ctx.fillStyle = "#ffccbc";
         ctx.beginPath();
         ctx.arc(screenX + p.width + 5, p.y + p.height - SLIDE_HEIGHT / 2, 10, 0, Math.PI * 2);
@@ -507,7 +516,7 @@ export default function Game() {
         const stripeWidth = 8;
         const bodyTop = p.y + 20 + bounce;
         const bodyHeight = p.height - 35;
-        
+
         for (let i = 0; i < Math.ceil((p.width - 10) / stripeWidth); i++) {
           ctx.fillStyle = i % 2 === 0 ? "#1a1a1a" : "#ffffff";
           const stripeX = screenX + 5 + i * stripeWidth;
@@ -564,14 +573,14 @@ export default function Game() {
     const drawPolice = () => {
       const police = game.police;
       const screenX = police.x - game.cameraX;
-      
+
       if (screenX > -100) {
         ctx.fillStyle = "#1a1a1a";
         ctx.fillRect(screenX, BASE_GROUND_Y - 40, 80, 30);
-        
+
         ctx.fillStyle = "#2563eb";
         ctx.fillRect(screenX + 10, BASE_GROUND_Y - 55, 60, 15);
-        
+
         const lightOn = Math.floor(game.frameCount / 10) % 2 === 0;
         ctx.fillStyle = lightOn ? "#ef4444" : "#3b82f6";
         ctx.beginPath();
@@ -581,13 +590,13 @@ export default function Game() {
         ctx.beginPath();
         ctx.arc(screenX + 55, BASE_GROUND_Y - 60, 6, 0, Math.PI * 2);
         ctx.fill();
-        
+
         ctx.fillStyle = "#1a1a1a";
         ctx.beginPath();
         ctx.arc(screenX + 15, BASE_GROUND_Y - 5, 10, 0, Math.PI * 2);
         ctx.arc(screenX + 65, BASE_GROUND_Y - 5, 10, 0, Math.PI * 2);
         ctx.fill();
-        
+
         ctx.fillStyle = "#87CEEB";
         ctx.fillRect(screenX + 15, BASE_GROUND_Y - 50, 20, 12);
         ctx.fillRect(screenX + 45, BASE_GROUND_Y - 50, 20, 12);
@@ -601,9 +610,9 @@ export default function Game() {
     const drawObstacle = (obs: Obstacle) => {
       const screenX = obs.x - game.cameraX;
       const groundY = getTerrainHeight(obs.x + obs.width / 2);
-      
+
       ctx.save();
-      
+
       switch (obs.type) {
         case "spike":
           const spikeGradient = ctx.createLinearGradient(screenX, groundY, screenX, groundY - obs.height);
@@ -617,7 +626,7 @@ export default function Game() {
           ctx.closePath();
           ctx.fill();
           break;
-          
+
         case "log":
           ctx.fillStyle = "#5d4037";
           ctx.beginPath();
@@ -628,7 +637,7 @@ export default function Game() {
           ctx.ellipse(screenX + obs.width / 2 - 5, groundY - obs.height / 2, obs.width / 2 - 8, obs.height / 2 - 5, 0, 0, Math.PI * 2);
           ctx.fill();
           break;
-          
+
         case "gap":
           ctx.fillStyle = "#0a0a0a";
           ctx.fillRect(screenX, groundY, obs.width, obs.height);
@@ -636,7 +645,7 @@ export default function Game() {
           ctx.fillRect(screenX - 5, groundY, 5, 20);
           ctx.fillRect(screenX + obs.width, groundY, 5, 20);
           break;
-          
+
         case "ramp":
           const rampGradient = ctx.createLinearGradient(screenX, groundY, screenX + obs.width, groundY - obs.height);
           rampGradient.addColorStop(0, "#795548");
@@ -650,7 +659,7 @@ export default function Game() {
           ctx.fill();
           break;
       }
-      
+
       ctx.restore();
     };
 
@@ -664,12 +673,12 @@ export default function Game() {
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(screenX, vine.anchorY);
-      
+
       const cp1x = screenX + Math.sin(vine.angle * 0.5) * vine.length * 0.3;
       const cp1y = vine.anchorY + vine.length * 0.3;
       const cp2x = screenX + Math.sin(vine.angle * 0.8) * vine.length * 0.7;
       const cp2y = vine.anchorY + vine.length * 0.7;
-      
+
       ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY);
       ctx.stroke();
 
@@ -700,13 +709,13 @@ export default function Game() {
 
     const drawCoin = (coin: Coin) => {
       if (coin.collected) return;
-      
+
       const screenX = coin.x - game.cameraX;
-      
+
       ctx.save();
       ctx.translate(screenX, coin.y);
       ctx.rotate(coin.rotation);
-      
+
       const scale = Math.abs(Math.cos(coin.rotation));
       ctx.scale(scale * 0.8 + 0.2, 1);
 
@@ -746,7 +755,7 @@ export default function Game() {
 
     const checkCollision = (player: Player, obs: Obstacle): boolean => {
       if (player.invincible > 0) return false;
-      
+
       const pLeft = player.x;
       const pRight = player.x + player.width;
       const pTop = player.y;
@@ -760,7 +769,7 @@ export default function Game() {
           const spikeTop = groundY - obs.height;
           const spikeBottom = groundY;
           return pRight > spikeLeft && pLeft < spikeRight && pBottom > spikeTop && pTop < spikeBottom;
-          
+
         case "log":
           const logCenterX = obs.x + obs.width / 2;
           const logCenterY = groundY - obs.height / 2;
@@ -770,23 +779,23 @@ export default function Game() {
           const dy = playerCenterY - logCenterY;
           const distance = Math.sqrt(dx * dx + dy * dy);
           return distance < (obs.width / 2 + player.width / 3);
-          
+
         case "gap":
           const playerCenterXGap = player.x + player.width / 2;
           const gapLeft = obs.x + 30;
           const gapRight = obs.x + obs.width - 30;
-          
+
           if (playerCenterXGap > gapLeft && playerCenterXGap < gapRight) {
             const leftEdgeGround = getTerrainHeight(obs.x - 10);
             const rightEdgeGround = getTerrainHeight(obs.x + obs.width + 10);
             const lowestEdge = Math.max(leftEdgeGround, rightEdgeGround);
-            
+
             if (pBottom >= lowestEdge + 150) {
               return true;
             }
           }
           return false;
-          
+
         case "ramp":
           return false;
       }
@@ -811,6 +820,10 @@ export default function Game() {
       const policeDistance = p.x - game.police.x;
       if (policeDistance < 150) {
         setPoliceWarning(Math.min(100, (150 - policeDistance) / 150 * 100));
+        // Play siren sound every 60 frames when police is close
+        if (game.frameCount % 60 === 0) {
+          soundRef.current.playSiren();
+        }
       } else {
         setPoliceWarning(0);
       }
@@ -823,7 +836,7 @@ export default function Game() {
 
       if (p.state === "swinging" && p.onVine) {
         const vine = p.onVine;
-        
+
         const gravity = 0.002;
         vine.angularVelocity += -gravity * Math.sin(vine.angle);
         vine.angularVelocity *= 0.998;
@@ -834,20 +847,21 @@ export default function Game() {
         p.y = vine.anchorY + Math.cos(vine.angle) * vine.length - p.height / 2;
 
         game.vineSwingTime = (game.vineSwingTime || 0) + 1;
-        
+
         if (!game.keys.up && game.vineSwingTime > 10) {
           const releaseSpeed = vine.angularVelocity * vine.length;
-          
+
           const forwardBoost = Math.max(0, Math.cos(vine.angle)) * Math.abs(releaseSpeed) * 2;
           p.vx = PLAYER_BASE_SPEED + forwardBoost + 4;
           p.vy = -Math.abs(Math.sin(vine.angle) * releaseSpeed) * 1.5 - 8;
-          
+
           p.vx = Math.max(PLAYER_BASE_SPEED + 2, Math.min(p.vx, PLAYER_BASE_SPEED * 4));
-          
+
           p.state = "jumping";
           p.onVine = null;
           game.vineSwingTime = 0;
           createParticles(p.x + p.width / 2, p.y + p.height / 2, "#4caf50", 10);
+          soundRef.current.playVineRelease();
         }
       } else {
         if (p.vx > PLAYER_BASE_SPEED) {
@@ -871,6 +885,7 @@ export default function Game() {
           p.vy = JUMP_FORCE;
           p.state = "jumping";
           createParticles(p.x + p.width / 2, p.y + p.height, "#8d6e63", 3);
+          soundRef.current.playJump();
         }
 
         p.vy += GRAVITY;
@@ -879,7 +894,7 @@ export default function Game() {
 
         let onRamp = false;
         let overGap = false;
-        
+
         game.obstacles.forEach(obs => {
           if (obs.type === "ramp") {
             const obsGroundY = getTerrainHeight(obs.x + obs.width / 2);
@@ -927,25 +942,26 @@ export default function Game() {
           const vineScreenX = vine.x;
           const vineEndX = vineScreenX + Math.sin(vine.angle) * vine.length;
           const vineEndY = vine.anchorY + Math.cos(vine.angle) * vine.length;
-          
+
           const dx = (p.x + p.width / 2) - vineEndX;
           const dy = p.y - vineEndY;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          
+
           if (dist < 50 && game.keys.up && p.vy <= 5) {
             p.state = "swinging";
             p.onVine = vine;
             game.vineSwingTime = 0;
             game.vineGrabCooldown = 15;
-            
+
             const entrySpeed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
             vine.angularVelocity = entrySpeed * 0.01 * (p.vx > 0 ? 1 : -1);
-            
+
             p.vy = 0;
+            soundRef.current.playVineGrab();
           }
         }
       });
-      
+
       if (game.vineGrabCooldown > 0) {
         game.vineGrabCooldown--;
       }
@@ -956,7 +972,7 @@ export default function Game() {
           gameOver();
           return false;
         }
-        
+
         return obs.x > game.cameraX - 200;
       });
 
@@ -966,7 +982,7 @@ export default function Game() {
 
       game.coinsList.forEach(coin => {
         coin.rotation += 0.1;
-        
+
         if (!coin.collected) {
           const dx = (p.x + p.width / 2) - coin.x;
           const dy = (p.y + p.height / 2) - coin.y;
@@ -974,6 +990,7 @@ export default function Game() {
             coin.collected = true;
             game.coinsCollected++;
             createParticles(coin.x, coin.y, "#ffd700", 8);
+            soundRef.current.playCoin();
           }
         }
       });
@@ -990,15 +1007,15 @@ export default function Game() {
       game.cameraX = p.x - CANVAS_WIDTH / 3;
 
       const spawnX = game.cameraX + CANVAS_WIDTH + 200;
-      
+
       if (spawnX - game.lastObstacleX > 300 + Math.random() * 200) {
         spawnObstacle(spawnX);
       }
-      
+
       if (spawnX - game.lastVineX > 500 + Math.random() * 300) {
         spawnVine(spawnX);
       }
-      
+
       if (spawnX - game.lastCoinX > 100 + Math.random() * 100) {
         const groundY = getTerrainHeight(spawnX);
         spawnCoin(spawnX, groundY);
@@ -1017,19 +1034,19 @@ export default function Game() {
 
     const render = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
+
       drawBackground();
-      
+
       game.vines.forEach(drawVine);
-      
+
       drawTerrain();
-      
+
       game.obstacles.forEach(drawObstacle);
       game.coinsList.forEach(drawCoin);
-      
+
       drawPolice();
       drawPlayer();
-      
+
       drawParticles();
     };
 
@@ -1048,7 +1065,7 @@ export default function Game() {
 
   useEffect(() => {
     if (gameState !== "start" && gameState !== "gameover" && gameState !== "paused") return;
-    
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -1147,7 +1164,7 @@ export default function Game() {
 
         {gameState === "start" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-lg overflow-y-auto py-8">
-            <h1 
+            <h1
               className="text-4xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-orange-300 to-yellow-400 mb-2 md:mb-4 animate-pulse"
               style={{ fontFamily: "'Poppins', sans-serif" }}
               data-testid="text-game-title"
@@ -1155,7 +1172,7 @@ export default function Game() {
               HEIST RUNNER
             </h1>
             <p className="text-lg md:text-xl text-white/80 mb-2">Escape the Police!</p>
-            
+
             <div className="flex items-center gap-2 mb-4">
               <span className="text-white/70">Name:</span>
               <input
@@ -1170,13 +1187,13 @@ export default function Game() {
                 data-testid="input-player-name"
               />
             </div>
-            
+
             {highScore > 0 && (
               <p className="text-lg text-yellow-400 mb-4" data-testid="text-high-score">
                 Your Best: {highScore.toLocaleString()}
               </p>
             )}
-            
+
             <Button
               size="lg"
               onClick={startGame}
@@ -1186,7 +1203,7 @@ export default function Game() {
               <Play className="w-6 h-6 mr-2" />
               Start Heist
             </Button>
-            
+
             <Button
               variant="ghost"
               onClick={() => setShowLeaderboard(!showLeaderboard)}
@@ -1196,14 +1213,14 @@ export default function Game() {
               <Trophy className="w-5 h-5 mr-2" />
               {showLeaderboard ? "Hide" : "Show"} Leaderboard
             </Button>
-            
+
             {showLeaderboard && leaderboard.length > 0 && (
               <div className="mt-4 bg-black/40 rounded-lg p-4 w-full max-w-sm">
                 <h3 className="text-lg font-bold text-white mb-3 text-center">Top Scores</h3>
                 <div className="space-y-2">
                   {leaderboard.slice(0, 5).map((entry, index) => (
-                    <div 
-                      key={entry.id} 
+                    <div
+                      key={entry.id}
                       className="flex items-center justify-between text-white/80 px-2"
                       data-testid={`leaderboard-entry-${index}`}
                     >
@@ -1219,7 +1236,7 @@ export default function Game() {
                 </div>
               </div>
             )}
-            
+
             <div className="mt-6 text-white/70 text-center max-w-md px-4">
               <p className="mb-2 font-semibold">How to Play:</p>
               <p className="text-sm">
