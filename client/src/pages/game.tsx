@@ -318,6 +318,7 @@ export default function Game() {
         height = 300;
         // Guarantee a vine before the gap
         spawnVine(worldX - 150);
+        game.lastVineX = worldX + width; // Mark the gap region as occupied to prevent autonomous vine clusters
         break;
       case "ramp":
         width = 120;
@@ -515,6 +516,11 @@ export default function Game() {
       for (const segment of game.terrain) {
         if (segment.endX < visibleStart) continue;
         if (segment.startX > visibleEnd) break;
+
+        // Skip terrain inside pits
+        const inGap = game.obstacles.some(o => o.type === "gap" && segment.startX >= o.x && segment.endX <= o.x + o.width);
+        if (inGap) { started = false; continue; }
+
         const screenStartX = segment.startX - game.cameraX;
         const screenEndX = segment.endX - game.cameraX;
         if (!started) { ctx.moveTo(screenStartX, segment.startY + 40); started = true; }
@@ -534,6 +540,11 @@ export default function Game() {
       for (const segment of game.terrain) {
         if (segment.endX < visibleStart) continue;
         if (segment.startX > visibleEnd) break;
+
+        // Skip terrain inside pits
+        const inGap = game.obstacles.some((o: any) => o.type === "gap" && segment.startX >= o.x && segment.endX <= o.x + o.width);
+        if (inGap) { started = false; continue; }
+
         const screenStartX = segment.startX - game.cameraX;
         const screenEndX = segment.endX - game.cameraX;
         if (!started) { ctx.moveTo(screenStartX, segment.startY); started = true; }
@@ -556,6 +567,11 @@ export default function Game() {
       for (const segment of game.terrain) {
         if (segment.endX < visibleStart) continue;
         if (segment.startX > visibleEnd) break;
+
+        // Skip terrain inside pits
+        const inGap = game.obstacles.some((o: any) => o.type === "gap" && segment.startX >= o.x && segment.endX <= o.x + o.width);
+        if (inGap) { started = false; continue; }
+
         const screenStartX = segment.startX - game.cameraX;
         const screenEndX = segment.endX - game.cameraX;
         if (!started) { ctx.moveTo(screenStartX, segment.startY); started = true; }
@@ -1032,13 +1048,15 @@ export default function Game() {
       if (slope > 0.1) { // Upward slope
         p.vx = Math.max(4, p.vx - 0.05);
       } else if (slope < -0.1) { // Downward slope
-        p.vx = Math.min(15, p.vx + (p.state === "sliding" ? 0.15 : 0.05)); // Extra boost when sliding
+        const boost = p.state === "sliding" ? 0.4 : 0.05;
+        p.vx = Math.min(20, p.vx + boost); // Enhanced boost and raised cap
         if (p.state === "sliding") {
-          createParticles(p.x, p.y + p.height, "#ffffff", 1); // Dust/smoke trail
+          const particleCount = p.vx > 12 ? 3 : 1;
+          createParticles(p.x, p.y + p.height, "#ffffff", particleCount); // Intensified trail
         }
       } else {
         // Gradually return to base speed
-        if (p.vx > PLAYER_BASE_SPEED) p.vx -= 0.01;
+        if (p.vx > PLAYER_BASE_SPEED) p.vx -= 0.02;
         if (p.vx < PLAYER_BASE_SPEED) p.vx += 0.01;
       }
 
@@ -1268,15 +1286,6 @@ export default function Game() {
         spawnVine(spawnX);
       }
 
-      // Ensure vines spawn over huge gaps
-      game.obstacles.forEach(obs => {
-        if (obs.type === "gap" && obs.width > 500) {
-          const vineX = obs.x + obs.width / 2;
-          if (Math.abs(vineX - game.lastVineX) > 200) {
-            spawnVine(vineX);
-          }
-        }
-      });
 
       if (spawnX - game.lastCoinX > 400 + Math.random() * 400) {
         const groundY = getTerrainHeight(spawnX);
@@ -1307,8 +1316,8 @@ export default function Game() {
 
     const drawRadar = () => {
       ctx.save();
-      const centerX = 80;
-      const centerY = 80;
+      const centerX = CANVAS_WIDTH - 100;
+      const centerY = CANVAS_HEIGHT - 100;
       const radius = 60;
 
       // Glassmorphic Circle
