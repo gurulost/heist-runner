@@ -315,19 +315,18 @@ const spawnObstacle = useCallback((worldX: number) => {
       width = 30;
       height = 40;
       break;
-    case "mushroom":
-      width = 40;
-      height = 30;
+      width: 40;
+      height: 30;
       break;
     case "gap":
       width = 600 + Math.random() * 400; // Ginormous pits
       height = 300;
-      // Guarantee a vine before the gap
-      spawnVine(worldX - 150);
+      // Cliff Hanger Vine: Spawn OVER the pit so player can jump from edge to catch it
+      spawnVine(worldX + 100);
 
       // Secondary vine for very large gaps to make crossing easier
-      if (width > 700) {
-        spawnVine(worldX + width / 2);
+      if (width > 800) {
+        spawnVine(worldX + width / 2 + 100);
       }
 
       game.lastVineX = worldX + width; // Mark the gap region as occupied to prevent autonomous vine clusters
@@ -1083,8 +1082,8 @@ useEffect(() => {
         }
       }
     } else {
-      // Gradually return to base speed on flat ground
-      if (p.vx > PLAYER_BASE_SPEED) p.vx *= 0.98;
+      // Momentum Preservation: Very low friction on flat ground
+      if (p.vx > PLAYER_BASE_SPEED) p.vx *= 0.999;
       if (p.vx < PLAYER_BASE_SPEED) p.vx = Math.min(PLAYER_BASE_SPEED, p.vx + 0.1);
     }
 
