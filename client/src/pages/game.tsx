@@ -76,6 +76,7 @@ const PLAYER_BASE_SPEED = 6;
 const POLICE_SPEED = 6.8;
 const CANVAS_WIDTH = 960;
 const CANVAS_HEIGHT = 540;
+const THE_ABYSS = 2000; // Physics height inside pits (non-grounding)
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -800,15 +801,18 @@ export default function Game() {
 
 
         case "gap":
-          // Deep Abyss Polygon (now perfectly flat with BASE_GROUND_Y)
+          const leftEdgeY = getTerrainHeight(obs.x, true);
+          const rightEdgeY = getTerrainHeight(obs.x + obs.width, true);
+
+          // Deep Abyss Polygon (Seals perfectly to real terrain edges)
           ctx.beginPath();
-          ctx.moveTo(screenX, BASE_GROUND_Y);
-          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y);
+          ctx.moveTo(screenX, leftEdgeY);
+          ctx.lineTo(screenX + obs.width, rightEdgeY);
           ctx.lineTo(screenX + obs.width, canvas.height);
           ctx.lineTo(screenX, canvas.height);
           ctx.closePath();
 
-          const pitGradient = ctx.createLinearGradient(screenX, BASE_GROUND_Y, screenX, canvas.height);
+          const pitGradient = ctx.createLinearGradient(screenX, Math.min(leftEdgeY, rightEdgeY), screenX, canvas.height);
           pitGradient.addColorStop(0, "#000000");
           pitGradient.addColorStop(1, "#020617");
           ctx.fillStyle = pitGradient;
@@ -816,18 +820,18 @@ export default function Game() {
 
           // Atmospheric Mist
           ctx.fillStyle = "rgba(5, 150, 105, 0.1)";
-          ctx.fillRect(screenX, BASE_GROUND_Y + 40, obs.width, canvas.height);
+          ctx.fillRect(screenX, Math.max(leftEdgeY, rightEdgeY) + 40, obs.width, canvas.height);
 
-          // Sharp edges at the pit
+          // Sharp edges at the pit (matching terrain height)
           ctx.strokeStyle = "#10b981";
           ctx.lineWidth = 4;
           ctx.beginPath();
-          ctx.moveTo(screenX, BASE_GROUND_Y);
-          ctx.lineTo(screenX, BASE_GROUND_Y + 40);
+          ctx.moveTo(screenX, leftEdgeY);
+          ctx.lineTo(screenX, leftEdgeY + 40);
           ctx.stroke();
           ctx.beginPath();
-          ctx.moveTo(screenX + obs.width, BASE_GROUND_Y);
-          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y + 40);
+          ctx.moveTo(screenX + obs.width, rightEdgeY);
+          ctx.lineTo(screenX + obs.width, rightEdgeY + 40);
           ctx.stroke();
           break;
 
