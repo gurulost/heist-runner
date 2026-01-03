@@ -809,35 +809,44 @@ export default function Game() {
 
 
         case "gap":
-          // Deep Abyss Polygon (Naturally level due to source flattening)
+          // Transparent Hole (Source flattening ensures BASE_GROUND_Y)
+          // We don't fill anything - we just let the background show through.
+
+          ctx.save();
+          // Side Walls (Depth)
+          const sideWallGradient = ctx.createLinearGradient(screenX, BASE_GROUND_Y, screenX, canvas.height);
+          sideWallGradient.addColorStop(0, "rgba(0,0,0,0.6)");
+          sideWallGradient.addColorStop(1, "rgba(0,0,0,0)");
+
+          ctx.fillStyle = sideWallGradient;
+          // Left Wall
+          ctx.fillRect(screenX, BASE_GROUND_Y, 20, canvas.height - BASE_GROUND_Y);
+          // Right Wall
+          ctx.fillRect(screenX + obs.width - 20, BASE_GROUND_Y, 20, canvas.height - BASE_GROUND_Y);
+
+          // Dirt/Rock thickness at the edge
+          ctx.fillStyle = "#2d1b0d";
+          ctx.fillRect(screenX, BASE_GROUND_Y, 4, 40);
+          ctx.fillRect(screenX + obs.width - 4, BASE_GROUND_Y, 4, 40);
+
+          // Sharp Moss edges
+          ctx.strokeStyle = "#064e3b";
+          ctx.lineWidth = 14;
           ctx.beginPath();
           ctx.moveTo(screenX, BASE_GROUND_Y);
-          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y);
-          ctx.lineTo(screenX + obs.width, canvas.height);
-          ctx.lineTo(screenX, canvas.height);
-          ctx.closePath();
-
-          const pitGradient = ctx.createLinearGradient(screenX, BASE_GROUND_Y, screenX, canvas.height);
-          pitGradient.addColorStop(0, "#000000");
-          pitGradient.addColorStop(1, "#020617");
-          ctx.fillStyle = pitGradient;
-          ctx.fill();
-
-          // Atmospheric Mist
-          ctx.fillStyle = "rgba(5, 150, 105, 0.1)";
-          ctx.fillRect(screenX, BASE_GROUND_Y + 40, obs.width, canvas.height);
-
-          // Sharp edges at the pit
-          ctx.strokeStyle = "#10b981";
-          ctx.lineWidth = 4;
-          ctx.beginPath();
-          ctx.moveTo(screenX, BASE_GROUND_Y);
-          ctx.lineTo(screenX, BASE_GROUND_Y + 40);
+          ctx.lineTo(screenX, BASE_GROUND_Y + 10);
           ctx.stroke();
           ctx.beginPath();
           ctx.moveTo(screenX + obs.width, BASE_GROUND_Y);
-          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y + 40);
+          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y + 10);
           ctx.stroke();
+
+          ctx.strokeStyle = "#10b981";
+          ctx.lineWidth = 6;
+          ctx.beginPath(); ctx.moveTo(screenX, BASE_GROUND_Y); ctx.lineTo(screenX, BASE_GROUND_Y + 10); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(screenX + obs.width, BASE_GROUND_Y); ctx.lineTo(screenX + obs.width, BASE_GROUND_Y + 10); ctx.stroke();
+
+          ctx.restore();
           break;
 
         case "ramp":
@@ -1288,7 +1297,7 @@ export default function Game() {
 
       game.cameraX = p.x - CANVAS_WIDTH / 3;
 
-      const spawnX = game.cameraX + CANVAS_WIDTH + 200;
+      const spawnX = game.cameraX + CANVAS_WIDTH + 800;
 
       if (spawnX - game.lastObstacleX > 800 + Math.random() * 800) {
         spawnObstacle(spawnX);
@@ -1388,21 +1397,20 @@ export default function Game() {
       drawFireflies();
       drawRain();
 
-      drawRadar();
-
       game.vines.forEach(drawVine);
-
       drawTerrain();
-
       game.obstacles.forEach(drawObstacle);
       game.coinsList.forEach(drawCoin);
 
       drawPolice();
       drawPlayer();
-
       drawParticles();
 
       drawVignette();
+
+      // Radar must be on TOP of everything (last layer)
+      drawRadar();
+
       ctx.restore();
     };
 
