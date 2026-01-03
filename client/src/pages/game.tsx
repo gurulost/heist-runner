@@ -379,19 +379,17 @@ export default function Game() {
         height = 40;
         break;
       case "low_beam":
-        width = 20; // Thin pole/beam
-        height = 100; // Tall structure
+        width = 40; // Thicker wall
+        height = CANVAS_HEIGHT; // Full height (visual only, effective height handled in collision)
         break;
       case "mushroom":
         width = 40;
         height = 30;
         break;
       case "gap":
-        // Regular Jumpable Gap
-        width = 200 + Math.random() * 200;
+        // Regular Jumpable Gap - SMALLER as requested
+        width = 100 + Math.random() * 150; // Was 200+
         height = 300;
-        // No vines needed for small gaps usually, but adding one for safety isn't bad.
-        // Let's keep small gaps vine-free to encourage JUMPING.
         break;
       case "ramp":
         width = 120;
@@ -881,25 +879,21 @@ export default function Game() {
 
 
         case "gap":
-          // Transparent Hole (Source flattening ensures BASE_GROUND_Y)
-          // We don't fill anything - we just let the background show through.
+          // Draw the ABYSS first (fill the hole with darkness)
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(screenX, BASE_GROUND_Y, obs.width, canvas.height - BASE_GROUND_Y);
 
           ctx.save();
-          // Side Walls (Depth)
+          // Side Walls (Depth) - subtle gradient to suggest dirt walls
           const sideWallGradient = ctx.createLinearGradient(screenX, BASE_GROUND_Y, screenX, canvas.height);
-          sideWallGradient.addColorStop(0, "rgba(0,0,0,0.6)");
-          sideWallGradient.addColorStop(1, "rgba(0,0,0,0)");
+          sideWallGradient.addColorStop(0, "#2d1b0d");
+          sideWallGradient.addColorStop(1, "#000000");
 
           ctx.fillStyle = sideWallGradient;
           // Left Wall
           ctx.fillRect(screenX, BASE_GROUND_Y, 20, canvas.height - BASE_GROUND_Y);
           // Right Wall
           ctx.fillRect(screenX + obs.width - 20, BASE_GROUND_Y, 20, canvas.height - BASE_GROUND_Y);
-
-          // Dirt/Rock thickness at the edge
-          ctx.fillStyle = "#2d1b0d";
-          ctx.fillRect(screenX, BASE_GROUND_Y, 4, 40);
-          ctx.fillRect(screenX + obs.width - 4, BASE_GROUND_Y, 4, 40);
 
           // Sharp Moss edges
           ctx.strokeStyle = "#064e3b";
@@ -935,18 +929,29 @@ export default function Game() {
           break;
 
         case "low_beam":
-          // High Tech Barrier
-          ctx.fillStyle = "#374151"; // Pole color
-          ctx.fillRect(screenX + 5, groundY - 120, 10, 120); // Pole
+          // "Slide Wall" - Big wall with a gap at the bottom
+          // Draw from top of screen down to the slide height
+          const gapHeight = SLIDE_HEIGHT + 20; // Enough space to slide under
+          const wallBottom = groundY - gapHeight;
 
-          // Beam
-          ctx.fillStyle = "#f59e0b"; // Hazard orange
-          ctx.fillRect(screenX - 10, groundY - 60, 40, 10); // The Beam
+          // Wall Body
+          ctx.fillStyle = "#334155"; // Slate-700
+          ctx.fillRect(screenX, 0, obs.width, wallBottom);
 
-          // Hazard Stripes
+          // Tech details / reinforcement
+          ctx.fillStyle = "#1e293b"; // Slate-800
+          ctx.fillRect(screenX + 5, 0, obs.width - 10, wallBottom - 5);
+
+          // Hazard Stripes at the bottom edge
+          const stripeSize = 10;
+          ctx.fillStyle = "#f59e0b"; // Warning Orange
+          ctx.fillRect(screenX, wallBottom - 20, obs.width, 20);
+
           ctx.fillStyle = "#000000";
-          for (let i = 0; i < 4; i++) {
-            ctx.fillRect(screenX - 10 + (i * 10), groundY - 60, 5, 10);
+          for (let i = 0; i < obs.width / stripeSize; i++) {
+            if (i % 2 === 0) {
+              ctx.fillRect(screenX + i * stripeSize, wallBottom - 20, stripeSize, 20);
+            }
           }
           break;
 
@@ -969,7 +974,6 @@ export default function Game() {
           ctx.fillRect(screenX + 18, groundY - 20, 4, 20);
           break;
       }
-
       ctx.restore();
     };
 
@@ -1135,17 +1139,15 @@ export default function Game() {
       const pBottom = p.y + (p.state === "sliding" ? SLIDE_HEIGHT : p.height);
       const groundY = getTerrainHeight(obs.x + obs.width / 2);
 
-      // Low Beam Collision: Hitting the beam while NOT sliding
+      // Slide Wall Collision (formerly Low Beam)
       if (obs.type === "low_beam") {
-        const obsCenterX = obs.x + 10; // Center of beam
-        // Beam is at groundY - 60 to groundY - 50.
-        // Player height is 50 (running) or 25 (sliding).
-        // If running, top of head is at groundY - 50.
-        // So if player runs under it, HEAD hits beam.
-
-        if (p.x + p.width > obs.x && p.x < obs.x + 40) { // X overlap
-          if (p.state !== "sliding") {
-            return true;
+        const wallGapHeight = SLIDE_HEIGHT + 20;
+        const wallBottom = getTerrainHeight(obs.x) - wallGapHeight;
+        // The wall exists from Y=0 to wallBottom.
+        // If player Top < wallBottom, they hit the wall.
+        if (p.x + p.width > obs.x && p.x < obs.x + obs.width) {
+          if (pTop < wallBottom) {
+            return true; // Bonk!
           }
         }
         return false;
@@ -1448,6 +1450,18 @@ export default function Game() {
 
       game.obstacles = game.obstacles.filter(obs => {
         if (checkCollision(p, obs)) {
+          // Special Handling for Wall Hit (Non-Lethal)
+          if (obs.type === "low_beam") {
+            // Slow down player significantly
+            p.vx = 2;
+            game.shake = 10;
+            createParticles(p.x + p.width / 2, p.y + p.height / 2, "#f59e0b", 5); // Sparks
+            // Bounce back slightly to prevent sticking
+            p.x -= 20;
+            return true; // Keep obstacle
+          }
+
+          // Lethal hit
           createParticles(p.x + p.width / 2, p.y + p.height / 2, "#e53935", 10);
           gameOver();
           return false;
