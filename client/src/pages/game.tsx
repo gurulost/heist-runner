@@ -170,6 +170,11 @@ export default function Game() {
 
   const getTerrainHeight = useCallback((worldX: number): number => {
     const game = gameRef.current;
+
+    // Force pits to be flat and at BASE_GROUND_Y
+    const inGap = game.obstacles.some(o => o.type === "gap" && worldX >= o.x && worldX <= o.x + o.width);
+    if (inGap) return BASE_GROUND_Y;
+
     for (const segment of game.terrain) {
       if (worldX >= segment.startX && worldX < segment.endX) {
         const t = (worldX - segment.startX) / (segment.endX - segment.startX);
@@ -509,75 +514,72 @@ export default function Game() {
       const visibleStart = game.cameraX - 100;
       const visibleEnd = game.cameraX + canvas.width + 100;
 
-      // Deep soil/roots layer
+      // Helper to draw a contiguous terrain block
+      const drawBlock = (segments: any[], layer: "soil" | "stone" | "moss") => {
+        if (segments.length === 0) return;
+
+        ctx.beginPath();
+        const first = segments[0];
+        const last = segments[segments.length - 1];
+
+        if (layer === "soil") {
+          ctx.moveTo(first.startX - game.cameraX, first.startY + 40);
+          segments.forEach(s => ctx.lineTo(s.endX - game.cameraX, s.endY + 40));
+          ctx.lineTo(last.endX - game.cameraX, canvas.height);
+          ctx.lineTo(first.startX - game.cameraX, canvas.height);
+          ctx.fill();
+        } else if (layer === "stone") {
+          ctx.moveTo(first.startX - game.cameraX, first.startY);
+          segments.forEach(s => ctx.lineTo(s.endX - game.cameraX, s.endY));
+          ctx.lineTo(last.endX - game.cameraX, canvas.height);
+          ctx.lineTo(first.startX - game.cameraX, canvas.height);
+          ctx.fill();
+        } else { // moss
+          ctx.moveTo(first.startX - game.cameraX, first.startY);
+          segments.forEach(s => ctx.lineTo(s.endX - game.cameraX, s.endY));
+          ctx.stroke();
+        }
+      };
+
+      // Group segments into "mainland" blocks separated by gaps
+      const blocks: any[][] = [];
+      let currentBlock: any[] = [];
+
+      game.terrain.forEach(segment => {
+        if (segment.endX < visibleStart || segment.startX > visibleEnd) return;
+
+        const inGap = game.obstacles.some((o: any) => o.type === "gap" && segment.startX >= o.x && segment.endX <= o.x + o.width);
+
+        if (inGap) {
+          if (currentBlock.length > 0) blocks.push(currentBlock);
+          currentBlock = [];
+        } else {
+          currentBlock.push(segment);
+        }
+      });
+      if (currentBlock.length > 0) blocks.push(currentBlock);
+
+      // 1. Deep soil
       ctx.fillStyle = "#2d1b0d";
-      ctx.beginPath();
-      let started = false;
-      for (const segment of game.terrain) {
-        if (segment.endX < visibleStart) continue;
-        if (segment.startX > visibleEnd) break;
+      blocks.forEach(b => drawBlock(b, "soil"));
 
-        // Skip terrain inside pits
-        const inGap = game.obstacles.some(o => o.type === "gap" && segment.startX >= o.x && segment.endX <= o.x + o.width);
-        if (inGap) { started = false; continue; }
-
-        const screenStartX = segment.startX - game.cameraX;
-        const screenEndX = segment.endX - game.cameraX;
-        if (!started) { ctx.moveTo(screenStartX, segment.startY + 40); started = true; }
-        ctx.lineTo(screenEndX, segment.endY + 40);
-      }
-      ctx.lineTo(canvas.width + 100, canvas.height);
-      ctx.lineTo(-100, canvas.height);
-      ctx.fill();
-
-      // Stone/Earth layer
+      // 2. Stone/Earth
       const stoneGradient = ctx.createLinearGradient(0, BASE_GROUND_Y, 0, canvas.height);
       stoneGradient.addColorStop(0, "#4a3728");
       stoneGradient.addColorStop(1, "#2d1b0d");
       ctx.fillStyle = stoneGradient;
-      ctx.beginPath();
-      started = false;
-      for (const segment of game.terrain) {
-        if (segment.endX < visibleStart) continue;
-        if (segment.startX > visibleEnd) break;
+      blocks.forEach(b => drawBlock(b, "stone"));
 
-        // Skip terrain inside pits
-        const inGap = game.obstacles.some((o: any) => o.type === "gap" && segment.startX >= o.x && segment.endX <= o.x + o.width);
-        if (inGap) { started = false; continue; }
-
-        const screenStartX = segment.startX - game.cameraX;
-        const screenEndX = segment.endX - game.cameraX;
-        if (!started) { ctx.moveTo(screenStartX, segment.startY); started = true; }
-        ctx.lineTo(screenEndX, segment.endY);
-      }
-      ctx.lineTo(canvas.width + 100, canvas.height);
-      ctx.lineTo(-100, canvas.height);
-      ctx.fill();
-
-      // Mossy Top Layer (3D edge effect)
+      // 3. Mossy Top
       ctx.strokeStyle = "#064e3b";
       ctx.lineWidth = 14;
       ctx.lineJoin = "round";
-      ctx.stroke();
+      blocks.forEach(b => drawBlock(b, "moss"));
 
       ctx.strokeStyle = "#10b981";
       ctx.lineWidth = 6;
-      ctx.beginPath();
-      started = false;
-      for (const segment of game.terrain) {
-        if (segment.endX < visibleStart) continue;
-        if (segment.startX > visibleEnd) break;
+      blocks.forEach(b => drawBlock(b, "moss"));
 
-        // Skip terrain inside pits
-        const inGap = game.obstacles.some((o: any) => o.type === "gap" && segment.startX >= o.x && segment.endX <= o.x + o.width);
-        if (inGap) { started = false; continue; }
-
-        const screenStartX = segment.startX - game.cameraX;
-        const screenEndX = segment.endX - game.cameraX;
-        if (!started) { ctx.moveTo(screenStartX, segment.startY); started = true; }
-        ctx.lineTo(screenEndX, segment.endY);
-      }
-      ctx.stroke();
       ctx.restore();
     };
 
@@ -798,18 +800,15 @@ export default function Game() {
 
 
         case "gap":
-          const leftGroundY = getTerrainHeight(obs.x);
-          const rightGroundY = getTerrainHeight(obs.x + obs.width);
-
-          // Deep Abyss Polygon (matches terrain edges)
+          // Deep Abyss Polygon (now perfectly flat with BASE_GROUND_Y)
           ctx.beginPath();
-          ctx.moveTo(screenX, leftGroundY);
-          ctx.lineTo(screenX + obs.width, rightGroundY);
+          ctx.moveTo(screenX, BASE_GROUND_Y);
+          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y);
           ctx.lineTo(screenX + obs.width, canvas.height);
           ctx.lineTo(screenX, canvas.height);
           ctx.closePath();
 
-          const pitGradient = ctx.createLinearGradient(screenX, Math.min(leftGroundY, rightGroundY), screenX, canvas.height);
+          const pitGradient = ctx.createLinearGradient(screenX, BASE_GROUND_Y, screenX, canvas.height);
           pitGradient.addColorStop(0, "#000000");
           pitGradient.addColorStop(1, "#020617");
           ctx.fillStyle = pitGradient;
@@ -817,18 +816,18 @@ export default function Game() {
 
           // Atmospheric Mist
           ctx.fillStyle = "rgba(5, 150, 105, 0.1)";
-          ctx.fillRect(screenX, Math.max(leftGroundY, rightGroundY) + 40, obs.width, canvas.height);
+          ctx.fillRect(screenX, BASE_GROUND_Y + 40, obs.width, canvas.height);
 
           // Sharp edges at the pit
           ctx.strokeStyle = "#10b981";
           ctx.lineWidth = 4;
           ctx.beginPath();
-          ctx.moveTo(screenX, leftGroundY);
-          ctx.lineTo(screenX, leftGroundY + 40);
+          ctx.moveTo(screenX, BASE_GROUND_Y);
+          ctx.lineTo(screenX, BASE_GROUND_Y + 40);
           ctx.stroke();
           ctx.beginPath();
-          ctx.moveTo(screenX + obs.width, rightGroundY);
-          ctx.lineTo(screenX + obs.width, rightGroundY + 40);
+          ctx.moveTo(screenX + obs.width, BASE_GROUND_Y);
+          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y + 40);
           ctx.stroke();
           break;
 
