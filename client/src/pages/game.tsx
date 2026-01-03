@@ -7,7 +7,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useSound } from "@/hooks/useSound";
 import type { HighScore } from "@shared/schema";
 
-type GameState = "start" | "playing" | "paused" | "gameover";
+type GameState = "start" | "playing" | "paused" | "gameover" | "victory";
 
 interface Obstacle {
   x: number;
@@ -66,6 +66,8 @@ interface Player {
   invincible: number;
 }
 
+}
+
 const GRAVITY = 0.6;
 const JUMP_FORCE = -14;
 const BASE_GROUND_Y = 350;
@@ -77,6 +79,14 @@ const POLICE_SPEED = 6.8;
 const CANVAS_WIDTH = 960;
 const CANVAS_HEIGHT = 540;
 const THE_ABYSS = 2000; // Physics height inside pits (non-grounding)
+const VICTORY_DISTANCE = 20000;
+
+interface Plane {
+  x: number;
+  y: number;
+  vx: number;
+  state: "hidden" | "entering" | "waiting" | "departing";
+}
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -167,6 +177,12 @@ export default function Game() {
       o: Math.random() * Math.PI * 2,
     })),
     shake: 0,
+    plane: {
+      x: CANVAS_WIDTH + 200,
+      y: 100,
+      vx: 0,
+      state: "hidden" as Plane["state"],
+    }
   });
 
   const getTerrainHeight = useCallback((worldX: number, visuals: boolean = false): number => {
@@ -246,6 +262,7 @@ export default function Game() {
     game.lastCoinX = 0;
     game.vineSwingTime = 0;
     game.vineGrabCooldown = 0;
+    game.plane = { x: CANVAS_WIDTH + 200, y: 100, vx: 0, state: "hidden" };
 
     generateTerrain(0, 20);
 
@@ -304,8 +321,15 @@ const spawnVine = useCallback((worldX: number) => {
 
 const spawnObstacle = useCallback((worldX: number) => {
   const game = gameRef.current;
-  const types: Obstacle["type"][] = ["spike", "mushroom", "gap", "ramp"];
-  const type = types[Math.floor(Math.random() * types.length)];
+
+  // Weighted probabilities for better balance
+  // Spike: 35%, Mushroom: 30%, Ramp: 20%, Gap: 15%
+  const rand = Math.random();
+  let type: Obstacle["type"] = "spike";
+  if (rand < 0.35) type = "spike";
+  else if (rand < 0.65) type = "mushroom";
+  else if (rand < 0.85) type = "ramp";
+  else type = "gap";
 
   let width = 60;
   let height = 40;
@@ -315,8 +339,9 @@ const spawnObstacle = useCallback((worldX: number) => {
       width = 30;
       height = 40;
       break;
-      width: 40;
-      height: 30;
+    case "mushroom":
+      width = 40;
+      height = 30;
       break;
     case "gap":
       width = 600 + Math.random() * 400; // Ginormous pits
@@ -420,6 +445,11 @@ useEffect(() => {
 }, [gameState, togglePause, startGame]);
 
 useEffect(() => {
+  // Allow loop to continue for victory logic if needed, but we switch state at end
+  // Actually, simple: The loop runs while "playing". The cutscene runs while "playing". 
+  // At end of cutscene, we switch to "victory". 
+  // So "victory" state is just the static screen.
+  // So this line is fine as long as we only switch to "victory" AFTER the plane flies away.
   if (gameState !== "playing") return;
 
   const canvas = canvasRef.current;
@@ -644,25 +674,6 @@ useEffect(() => {
 
       for (let i = 0; i < 4; i++) {
         ctx.fillStyle = i % 2 === 0 ? "#ffffff" : "#1a1a1a";
-        ctx.fillRect(screenX + i * 12, slideY, 12, SLIDE_HEIGHT - 5);
-      }
-
-      ctx.fillStyle = "#ffccbc";
-      ctx.beginPath();
-      ctx.arc(screenX + p.width + 5, slideY + SLIDE_HEIGHT / 2, 10, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = "#1a1a1a";
-      ctx.fillRect(screenX + p.width - 5, slideY + SLIDE_HEIGHT / 2 - 8, 20, 8);
-    } else {
-      const stripeWidth = 8;
-      const bodyTop = p.y + 20 + bounce;
-      const bodyHeight = p.height - 35;
-
-      for (let i = 0; i < Math.ceil((p.width - 10) / stripeWidth); i++) {
-        ctx.fillStyle = i % 2 === 0 ? "#1a1a1a" : "#ffffff";
-        const stripeX = screenX + 5 + i * stripeWidth;
-        const width = Math.min(stripeWidth, screenX + p.width - 5 - stripeX);
         ctx.fillRect(stripeX, bodyTop, width, bodyHeight);
       }
 
@@ -1097,6 +1108,58 @@ useEffect(() => {
     game.police.speed = POLICE_SPEED * difficultyMultiplier;
     game.police.x += game.police.speed;
 
+    // Victory Condition: 20km Escape
+    if (game.distanceTraveled >= VICTORY_DISTANCE && game.plane.state === "hidden") {
+      game.plane.state = "entering";
+      // Stop spawning obstacles
+      game.nextTerrainX = Infinity;
+    }
+
+    // Cutscene Logic
+    if (game.plane.state !== "hidden") {
+      // Plane enters
+      if (game.plane.state === "entering") {
+        game.plane.x -= 4; // Fly in from right
+        if (game.plane.x < CANVAS_WIDTH - 300) {
+          game.plane.state = "waiting";
+          game.plane.vx = 0;
+        }
+      }
+
+      // Player auto-boards
+      if (game.plane.state === "waiting") {
+        // Hover effect
+        game.plane.y = 100 + Math.sin(game.frameCount * 0.05) * 10;
+
+        if (p.x > game.plane.x - 100) {
+          // Jump to plane
+          p.vx = 0;
+          p.vy = (game.plane.y - p.y) * 0.1;
+          p.x += (game.plane.x - p.x) * 0.1;
+          p.y += (game.plane.y - p.y) * 0.1;
+          p.state = "jumping"; // Use jump sprite
+
+          if (Math.abs(p.x - game.plane.x) < 10 && Math.abs(p.y - game.plane.y) < 10) {
+            game.plane.state = "departing";
+          }
+        }
+      }
+
+      // Fly away together
+      if (game.plane.state === "departing") {
+        game.plane.x += 15;
+        game.plane.y -= 5;
+        p.x = game.plane.x;
+        p.y = game.plane.y;
+        // Disable police
+        game.police.x -= 10;
+
+        if (game.plane.x > CANVAS_WIDTH + 200) {
+          setGameState("victory");
+        }
+      }
+    }
+
     const policeDistance = p.x - game.police.x;
     if (policeDistance < 400) {
       setPoliceWarning(Math.min(100, (400 - policeDistance) / 400 * 100));
@@ -1421,8 +1484,46 @@ useEffect(() => {
     game.obstacles.forEach((o: Obstacle) => drawObstacle(o));
     game.coinsList.forEach((c: Coin) => drawCoin(c));
 
+    // Draw Plane
+    if (game.plane.state !== "hidden") {
+      ctx.save();
+      // Actually, simpler: Plane X is SCREEN X.
+      const planeScreenX = game.plane.x;
+      const planeScreenY = game.plane.y;
+
+      // Draw Plane Body
+      ctx.fillStyle = "#e2e8f0";
+      ctx.beginPath();
+      ctx.ellipse(planeScreenX, planeScreenY, 60, 25, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Wings
+      ctx.fillStyle = "#94a3b8";
+      ctx.beginPath();
+      ctx.moveTo(planeScreenX - 20, planeScreenY);
+      ctx.lineTo(planeScreenX - 50, planeScreenY - 60);
+      ctx.lineTo(planeScreenX + 10, planeScreenY - 60);
+      ctx.lineTo(planeScreenX + 40, planeScreenY);
+      ctx.fill();
+
+      // Propeller
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(planeScreenX + 55, planeScreenY - 20, 5, 40);
+      // Blade spin
+      ctx.fillStyle = "rgba(200,200,200,0.5)";
+      ctx.beginPath();
+      ctx.ellipse(planeScreenX + 58, planeScreenY, 5, 35 * Math.sin(game.frameCount * 0.5), 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
     drawPolice();
-    drawPlayer();
+    // Don't draw player if they are in the plane (departing)? 
+    // Actually, drawing them helps visibility.
+    if (game.plane.state !== "departing") {
+      drawPlayer();
+    }
     drawParticles();
 
     drawVignette();
