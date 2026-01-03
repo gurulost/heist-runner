@@ -633,21 +633,22 @@ export default function Game() {
       const bounce = p.state === "running" ? Math.sin(game.frameCount * 0.3) * 2 : 0;
 
       if (p.state === "sliding") {
+        const slideY = p.y + p.height - SLIDE_HEIGHT;
         ctx.fillStyle = "#1a1a1a";
-        ctx.fillRect(screenX, p.y + p.height - SLIDE_HEIGHT, p.width + 10, SLIDE_HEIGHT - 5);
+        ctx.fillRect(screenX, slideY, p.width + 10, SLIDE_HEIGHT - 5);
 
         for (let i = 0; i < 4; i++) {
           ctx.fillStyle = i % 2 === 0 ? "#ffffff" : "#1a1a1a";
-          ctx.fillRect(screenX + i * 12, p.y + p.height - SLIDE_HEIGHT, 12, SLIDE_HEIGHT - 5);
+          ctx.fillRect(screenX + i * 12, slideY, 12, SLIDE_HEIGHT - 5);
         }
 
         ctx.fillStyle = "#ffccbc";
         ctx.beginPath();
-        ctx.arc(screenX + p.width + 5, p.y + p.height - SLIDE_HEIGHT / 2, 10, 0, Math.PI * 2);
+        ctx.arc(screenX + p.width + 5, slideY + SLIDE_HEIGHT / 2, 10, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = "#1a1a1a";
-        ctx.fillRect(screenX + p.width - 5, p.y + p.height - SLIDE_HEIGHT / 2 - 8, 20, 8);
+        ctx.fillRect(screenX + p.width - 5, slideY + SLIDE_HEIGHT / 2 - 8, 20, 8);
       } else {
         const stripeWidth = 8;
         const bodyTop = p.y + 20 + bounce;
@@ -1065,11 +1066,11 @@ export default function Game() {
       if (slope > 0.1) { // Upward slope
         p.vx = Math.max(4, p.vx - 0.05);
       } else if (slope < -0.1) { // Downward slope
-        const boost = p.state === "sliding" ? 0.4 : 0.05;
-        p.vx = Math.min(20, p.vx + boost); // Enhanced boost and raised cap
+        const boost = p.state === "sliding" ? 0.8 : 0.05; // Big boost for sliding
+        p.vx = Math.min(35, p.vx + boost); // Raised cap to 35
         if (p.state === "sliding") {
-          const particleCount = p.vx > 12 ? 3 : 1;
-          createParticles(p.x, p.y + p.height, "#ffffff", particleCount); // Intensified trail
+          const particleCount = p.vx > 20 ? 6 : 2; // More particles for big speed
+          createParticles(p.x, p.y + p.height, "#ffffff", particleCount);
         }
       } else {
         // Gradually return to base speed
@@ -1158,6 +1159,7 @@ export default function Game() {
         if (game.keys.up && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "swinging" && !overGap) {
           p.vy = JUMP_FORCE;
           p.state = "jumping";
+          p.height = PLAYER_HEIGHT; // Reset height if jumping from slide
           createParticles(p.x + p.width / 2, p.y + p.height, "#8d6e63", 3);
           soundRef.current.playJump();
         }
@@ -1264,7 +1266,8 @@ export default function Game() {
           return false;
         }
 
-        return obs.x > game.cameraX - 200;
+        // Check against end of obstacle to ensure large pits don't vanish
+        return obs.x + (obs.width || 60) > game.cameraX - 200;
       });
 
       game.vines = game.vines.filter(vine => {
