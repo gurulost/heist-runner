@@ -153,6 +153,19 @@ export default function Game() {
     lastCoinX: 0,
     vineSwingTime: 0,
     vineGrabCooldown: 0,
+    rain: Array.from({ length: 100 }, () => ({
+      x: Math.random() * CANVAS_WIDTH,
+      y: Math.random() * CANVAS_HEIGHT,
+      l: Math.random() * 20 + 10,
+      v: Math.random() * 10 + 10,
+    })),
+    fireflies: Array.from({ length: 20 }, () => ({
+      x: Math.random() * CANVAS_WIDTH,
+      y: Math.random() * CANVAS_HEIGHT,
+      s: Math.random() * 2 + 1,
+      o: Math.random() * Math.PI * 2,
+    })),
+    shake: 0,
   });
 
   const getTerrainHeight = useCallback((worldX: number): number => {
@@ -532,6 +545,8 @@ export default function Game() {
       const p = game.player;
       const screenX = p.x - game.cameraX;
 
+      ctx.save();
+
       // Character Shadow
       const groundY = getTerrainHeight(p.x + p.width / 2);
       if (p.y + p.height < groundY + 10) {
@@ -865,6 +880,58 @@ export default function Game() {
       ctx.globalAlpha = 1;
     };
 
+    const drawRain = () => {
+      ctx.strokeStyle = "rgba(173, 216, 230, 0.4)";
+      ctx.lineWidth = 1;
+      const p = game.player;
+      const speedFactor = p.vx * 0.5;
+
+      game.rain.forEach(r => {
+        ctx.beginPath();
+        ctx.moveTo(r.x, r.y);
+        ctx.lineTo(r.x - speedFactor, r.y + r.l);
+        ctx.stroke();
+
+        r.y += r.v;
+        r.x -= speedFactor;
+
+        if (r.y > CANVAS_HEIGHT) {
+          r.y = -20;
+          r.x = Math.random() * CANVAS_WIDTH;
+        }
+        if (r.x < 0) r.x = CANVAS_WIDTH;
+        if (r.x > CANVAS_WIDTH) r.x = 0;
+      });
+    };
+
+    const drawFireflies = () => {
+      game.fireflies.forEach(f => {
+        const glow = Math.sin(game.frameCount * 0.05 + f.o) * 0.5 + 0.5;
+        ctx.fillStyle = `rgba(200, 255, 100, ${glow * 0.8})`;
+        ctx.shadowBlur = glow * 10;
+        ctx.shadowColor = "rgba(200, 255, 100, 0.5)";
+
+        const driftX = Math.cos(game.frameCount * 0.02 + f.o) * 20;
+        const driftY = Math.sin(game.frameCount * 0.02 + f.o) * 20;
+
+        ctx.beginPath();
+        ctx.arc(f.x + driftX, f.y + driftY, f.s, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+    };
+
+    const drawVignette = () => {
+      const vignette = ctx.createRadialGradient(
+        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_HEIGHT * 0.4,
+        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.7
+      );
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.5)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    };
+
     const checkCollision = (player: Player, obs: Obstacle): boolean => {
       if (player.invincible > 0) return false;
 
@@ -903,6 +970,8 @@ export default function Game() {
     const update = () => {
       const p = game.player;
       game.frameCount++;
+
+      if (game.shake > 0) game.shake *= 0.9;
 
       // Variables speed based on terrain slope
       const groundYAhead = getTerrainHeight(p.x + p.width / 2 + 20);
@@ -1059,6 +1128,7 @@ export default function Game() {
             if (p.state === "jumping" || p.state === "falling") {
               p.state = game.keys.down ? "sliding" : "running";
               createParticles(p.x + p.width / 2, p.y + p.height, "#8d6e63", 2);
+              game.shake = 8; // Impact shake
             }
           } else if (p.y > groundY - PLAYER_HEIGHT + 20 && p.state !== "jumping") {
             p.state = "falling";
@@ -1235,7 +1305,17 @@ export default function Game() {
     const render = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      ctx.save();
+      if (game.shake > 1) {
+        const sx = (Math.random() - 0.5) * game.shake;
+        const sy = (Math.random() - 0.5) * game.shake;
+        ctx.translate(sx, sy);
+      }
+
       drawBackground();
+      drawFireflies();
+      drawRain();
+
       drawRadar();
 
       game.vines.forEach(drawVine);
@@ -1249,6 +1329,9 @@ export default function Game() {
       drawPlayer();
 
       drawParticles();
+
+      drawVignette();
+      ctx.restore();
     };
 
     const gameLoop = () => {
@@ -1313,39 +1396,63 @@ export default function Game() {
         />
 
         {gameState === "playing" && (
-          <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between pointer-events-none">
-            <div className="flex flex-col gap-1">
-              <div className="text-2xl font-bold text-white drop-shadow-lg" data-testid="text-score">
-                Score: {score.toLocaleString()}
+          <>
+            {/* Police Proximity Edge Glow */}
+            <div
+              className="absolute inset-0 pointer-events-none transition-opacity duration-300"
+              style={{
+                opacity: policeWarning / 100,
+                boxShadow: "inset 0 0 100px rgba(239, 68, 68, 0.6)",
+                background: "radial-gradient(circle, transparent 60%, rgba(239, 68, 68, 0.2) 100%)"
+              }}
+            />
+
+            <div className="absolute top-0 left-0 right-0 p-6 flex items-start justify-between pointer-events-none">
+              {/* Left HUD Panel */}
+              <div className="flex flex-col gap-2 bg-black/40 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/10 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <Trophy className="w-5 h-5 text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]" />
+                  <div className="text-3xl font-black text-white tracking-tight" data-testid="text-score">
+                    {score.toLocaleString()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                  <div className="text-sm font-bold text-white/70 uppercase tracking-widest" data-testid="text-coins">
+                    {coins} COINS
+                  </div>
+                </div>
               </div>
-              <div className="text-lg text-white/80 drop-shadow-md" data-testid="text-coins">
-                Coins: {coins}
+
+              {/* Center Distance Panel */}
+              <div className="bg-white/10 backdrop-blur-lg px-8 py-3 rounded-full border border-white/20 shadow-lg">
+                <div className="text-xl font-bold text-white tracking-widest whitespace-nowrap" data-testid="text-distance">
+                  {distance.toLocaleString()}M
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 items-end pointer-events-auto">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setSoundEnabled(!soundEnabled)}
+                  className="bg-black/30 text-white"
+                  data-testid="button-sound-toggle"
+                >
+                  {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={togglePause}
+                  className="bg-black/30 text-white"
+                  data-testid="button-pause"
+                >
+                  <Pause className="w-5 h-5" />
+                </Button>
               </div>
             </div>
-            <div className="text-xl font-semibold text-white drop-shadow-lg" data-testid="text-distance">
-              {distance}m
-            </div>
-            <div className="flex gap-2 pointer-events-auto">
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => setSoundEnabled(!soundEnabled)}
-                className="bg-black/30 text-white"
-                data-testid="button-sound-toggle"
-              >
-                {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={togglePause}
-                className="bg-black/30 text-white"
-                data-testid="button-pause"
-              >
-                <Pause className="w-5 h-5" />
-              </Button>
-            </div>
-          </div>
+          </>
         )}
 
         {gameState === "playing" && policeWarning > 0 && (
