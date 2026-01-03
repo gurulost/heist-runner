@@ -284,6 +284,18 @@ export default function Game() {
     soundRef.current.playGameOver();
   }, [highScore, playerName, submitScoreMutation]);
 
+  const spawnVine = useCallback((worldX: number) => {
+    const game = gameRef.current;
+    game.vines.push({
+      x: worldX,
+      anchorY: 20,
+      length: 180 + Math.random() * 80,
+      angle: -Math.PI / 4,
+      angularVelocity: 0,
+    });
+    game.lastVineX = worldX;
+  }, []);
+
   const spawnObstacle = useCallback((worldX: number) => {
     const game = gameRef.current;
     const types: Obstacle["type"][] = ["spike", "mushroom", "gap", "ramp"];
@@ -304,6 +316,8 @@ export default function Game() {
       case "gap":
         width = 600 + Math.random() * 400; // Ginormous pits
         height = 300;
+        // Guarantee a vine before the gap
+        spawnVine(worldX - 150);
         break;
       case "ramp":
         width = 120;
@@ -319,19 +333,8 @@ export default function Game() {
       passed: false,
     });
     game.lastObstacleX = worldX;
-  }, []);
-
-  const spawnVine = useCallback((worldX: number) => {
-    const game = gameRef.current;
-    game.vines.push({
-      x: worldX,
-      anchorY: 20,
-      length: 180 + Math.random() * 80,
-      angle: -Math.PI / 4,
-      angularVelocity: 0,
-    });
-    game.lastVineX = worldX;
-  }, []);
+    if (type === "gap") game.lastVineX = worldX;
+  }, [spawnVine]);
 
   const spawnCoin = useCallback((worldX: number, groundY: number) => {
     const game = gameRef.current;
@@ -501,6 +504,7 @@ export default function Game() {
     };
 
     const drawTerrain = () => {
+      ctx.save();
       const visibleStart = game.cameraX - 100;
       const visibleEnd = game.cameraX + canvas.width + 100;
 
@@ -558,6 +562,7 @@ export default function Game() {
         ctx.lineTo(screenEndX, segment.endY);
       }
       ctx.stroke();
+      ctx.restore();
     };
 
     const drawPlayer = () => {
@@ -777,19 +782,38 @@ export default function Game() {
 
 
         case "gap":
-          // Deep Abyss Gradient
-          const pitGradient = ctx.createLinearGradient(screenX, groundY, screenX, canvas.height);
+          const leftGroundY = getTerrainHeight(obs.x);
+          const rightGroundY = getTerrainHeight(obs.x + obs.width);
+
+          // Deep Abyss Polygon (matches terrain edges)
+          ctx.beginPath();
+          ctx.moveTo(screenX, leftGroundY);
+          ctx.lineTo(screenX + obs.width, rightGroundY);
+          ctx.lineTo(screenX + obs.width, canvas.height);
+          ctx.lineTo(screenX, canvas.height);
+          ctx.closePath();
+
+          const pitGradient = ctx.createLinearGradient(screenX, Math.min(leftGroundY, rightGroundY), screenX, canvas.height);
           pitGradient.addColorStop(0, "#000000");
           pitGradient.addColorStop(1, "#020617");
           ctx.fillStyle = pitGradient;
-          ctx.fillRect(screenX, groundY, obs.width, canvas.height - groundY);
+          ctx.fill();
 
-          // Atmospheric Mist in the pit
-          const mistGradient = ctx.createLinearGradient(screenX, groundY + 50, screenX, canvas.height);
-          mistGradient.addColorStop(0, "rgba(5, 150, 105, 0)");
-          mistGradient.addColorStop(1, "rgba(5, 150, 105, 0.2)");
-          ctx.fillStyle = mistGradient;
-          ctx.fillRect(screenX, groundY + 50, obs.width, canvas.height - groundY - 50);
+          // Atmospheric Mist
+          ctx.fillStyle = "rgba(5, 150, 105, 0.1)";
+          ctx.fillRect(screenX, Math.max(leftGroundY, rightGroundY) + 40, obs.width, canvas.height);
+
+          // Sharp edges at the pit
+          ctx.strokeStyle = "#10b981";
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(screenX, leftGroundY);
+          ctx.lineTo(screenX, leftGroundY + 40);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(screenX + obs.width, rightGroundY);
+          ctx.lineTo(screenX + obs.width, rightGroundY + 40);
+          ctx.stroke();
           break;
 
         case "ramp":
@@ -810,6 +834,7 @@ export default function Game() {
     };
 
     const drawVine = (vine: Vine) => {
+      ctx.save();
       const screenX = vine.x - game.cameraX;
       const endX = screenX + Math.sin(vine.angle) * vine.length;
       const endY = vine.anchorY + Math.cos(vine.angle) * vine.length;
@@ -851,6 +876,7 @@ export default function Game() {
       ctx.beginPath();
       ctx.arc(endX, endY, 8, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
     };
 
     const drawCoin = (coin: Coin) => {
@@ -888,6 +914,7 @@ export default function Game() {
     };
 
     const drawParticles = () => {
+      ctx.save();
       game.particles.forEach(p => {
         const screenX = p.x - game.cameraX;
         ctx.globalAlpha = p.life;
@@ -896,10 +923,11 @@ export default function Game() {
         ctx.arc(screenX, p.y, 4 * p.life, 0, Math.PI * 2);
         ctx.fill();
       });
-      ctx.globalAlpha = 1;
+      ctx.restore();
     };
 
     const drawRain = () => {
+      ctx.save();
       ctx.strokeStyle = "rgba(173, 216, 230, 0.4)";
       ctx.lineWidth = 1;
       const p = game.player;
@@ -921,10 +949,13 @@ export default function Game() {
         if (r.x < 0) r.x = CANVAS_WIDTH;
         if (r.x > CANVAS_WIDTH) r.x = 0;
       });
+      ctx.restore();
     };
 
     const drawFireflies = () => {
+      ctx.save();
       game.fireflies.forEach((f: { x: number, y: number, s: number, o: number }) => {
+        // ... (existing firefly drawing logic)
         const glow = Math.sin(game.frameCount * 0.05 + f.o) * 0.5 + 0.5;
         ctx.fillStyle = `rgba(200, 255, 100, ${glow * 0.8})`;
         ctx.shadowBlur = glow * 10;
@@ -938,6 +969,7 @@ export default function Game() {
         ctx.fill();
         ctx.shadowBlur = 0;
       });
+      ctx.restore();
     };
 
     const drawVignette = () => {
@@ -1133,7 +1165,7 @@ export default function Game() {
           }
           if (obs.type === "gap") {
             const playerCenterX = p.x + p.width / 2;
-            if (playerCenterX > obs.x + 10 && playerCenterX < obs.x + obs.width - 10) {
+            if (playerCenterX > obs.x && playerCenterX < obs.x + obs.width) {
               overGap = true;
             }
           }
