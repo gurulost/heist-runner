@@ -169,12 +169,12 @@ export default function Game() {
     shake: 0,
   });
 
-  const getTerrainHeight = useCallback((worldX: number): number => {
+  const getTerrainHeight = useCallback((worldX: number, visuals: boolean = false): number => {
     const game = gameRef.current;
 
-    // Force pits to be flat and at BASE_GROUND_Y
+    // Force pits to be lethal (physics sees abyss, visuals see terrain)
     const inGap = game.obstacles.some(o => o.type === "gap" && worldX >= o.x && worldX <= o.x + o.width);
-    if (inGap) return BASE_GROUND_Y;
+    if (inGap && !visuals) return THE_ABYSS;
 
     for (const segment of game.terrain) {
       if (worldX >= segment.startX && worldX < segment.endX) {
@@ -325,6 +325,14 @@ export default function Game() {
         // Guarantee a vine before the gap
         spawnVine(worldX - 150);
         game.lastVineX = worldX + width; // Mark the gap region as occupied to prevent autonomous vine clusters
+
+        // Active Terrain Flattening: Snap any terrain overlapping the gap to BASE_GROUND_Y
+        game.terrain.forEach(seg => {
+          if (seg.startX < worldX + width && seg.endX > worldX) {
+            seg.startY = BASE_GROUND_Y;
+            seg.endY = BASE_GROUND_Y;
+          }
+        });
         break;
       case "ramp":
         width = 120;
@@ -801,18 +809,15 @@ export default function Game() {
 
 
         case "gap":
-          const leftEdgeY = getTerrainHeight(obs.x, true);
-          const rightEdgeY = getTerrainHeight(obs.x + obs.width, true);
-
-          // Deep Abyss Polygon (Seals perfectly to real terrain edges)
+          // Deep Abyss Polygon (Naturally level due to source flattening)
           ctx.beginPath();
-          ctx.moveTo(screenX, leftEdgeY);
-          ctx.lineTo(screenX + obs.width, rightEdgeY);
+          ctx.moveTo(screenX, BASE_GROUND_Y);
+          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y);
           ctx.lineTo(screenX + obs.width, canvas.height);
           ctx.lineTo(screenX, canvas.height);
           ctx.closePath();
 
-          const pitGradient = ctx.createLinearGradient(screenX, Math.min(leftEdgeY, rightEdgeY), screenX, canvas.height);
+          const pitGradient = ctx.createLinearGradient(screenX, BASE_GROUND_Y, screenX, canvas.height);
           pitGradient.addColorStop(0, "#000000");
           pitGradient.addColorStop(1, "#020617");
           ctx.fillStyle = pitGradient;
@@ -820,18 +825,18 @@ export default function Game() {
 
           // Atmospheric Mist
           ctx.fillStyle = "rgba(5, 150, 105, 0.1)";
-          ctx.fillRect(screenX, Math.max(leftEdgeY, rightEdgeY) + 40, obs.width, canvas.height);
+          ctx.fillRect(screenX, BASE_GROUND_Y + 40, obs.width, canvas.height);
 
-          // Sharp edges at the pit (matching terrain height)
+          // Sharp edges at the pit
           ctx.strokeStyle = "#10b981";
           ctx.lineWidth = 4;
           ctx.beginPath();
-          ctx.moveTo(screenX, leftEdgeY);
-          ctx.lineTo(screenX, leftEdgeY + 40);
+          ctx.moveTo(screenX, BASE_GROUND_Y);
+          ctx.lineTo(screenX, BASE_GROUND_Y + 40);
           ctx.stroke();
           ctx.beginPath();
-          ctx.moveTo(screenX + obs.width, rightEdgeY);
-          ctx.lineTo(screenX + obs.width, rightEdgeY + 40);
+          ctx.moveTo(screenX + obs.width, BASE_GROUND_Y);
+          ctx.lineTo(screenX + obs.width, BASE_GROUND_Y + 40);
           ctx.stroke();
           break;
 
@@ -1128,9 +1133,11 @@ export default function Game() {
           p.vx = PLAYER_BASE_SPEED;
         }
 
-        const groundY = getTerrainHeight(p.x + p.width / 2);
+        const playerCenterX = p.x + p.width / 2;
+        const overGap = game.obstacles.some(o => o.type === "gap" && playerCenterX > o.x && playerCenterX < o.x + o.width);
+        const groundY = getTerrainHeight(playerCenterX);
 
-        if (game.keys.down && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "jumping") {
+        if (game.keys.down && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "jumping" && !overGap) {
           p.state = "sliding";
           p.height = SLIDE_HEIGHT;
         } else if (!game.keys.down && p.state === "sliding") {
@@ -1139,7 +1146,7 @@ export default function Game() {
           p.y = groundY - PLAYER_HEIGHT;
         }
 
-        if (game.keys.up && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "swinging") {
+        if (game.keys.up && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "swinging" && !overGap) {
           p.vy = JUMP_FORCE;
           p.state = "jumping";
           createParticles(p.x + p.width / 2, p.y + p.height, "#8d6e63", 3);
@@ -1151,7 +1158,7 @@ export default function Game() {
         p.x += p.vx;
 
         let onRamp = false;
-        let overGap = false;
+        let isOverGap = overGap; // Local copy for below logic
 
         game.obstacles.forEach(obs => {
           if (obs.type === "mushroom") {
@@ -1187,7 +1194,7 @@ export default function Game() {
           if (obs.type === "gap") {
             const playerCenterX = p.x + p.width / 2;
             if (playerCenterX > obs.x && playerCenterX < obs.x + obs.width) {
-              overGap = true;
+              isOverGap = true;
             }
           }
         });
@@ -1205,7 +1212,9 @@ export default function Game() {
           } else if (p.y > groundY - PLAYER_HEIGHT + 20 && p.state !== "jumping") {
             p.state = "falling";
           }
-        } else if (overGap && p.state !== "jumping" && p.state !== "swinging") {
+        } else if (overGap && p.state !== "swinging") {
+          // If we are over a gap and not swinging, we MUST fall.
+          // Even if we are "jumping", once we are over the pit, the abyss is the only ground.
           p.state = "falling";
         }
       }
@@ -1319,8 +1328,8 @@ export default function Game() {
 
     const drawRadar = () => {
       ctx.save();
-      const centerX = CANVAS_WIDTH - 100;
-      const centerY = CANVAS_HEIGHT - 100;
+      const centerX = 110; // Relocated to left side
+      const centerY = CANVAS_HEIGHT - 110;
       const radius = 60;
 
       // Glassmorphic Circle
