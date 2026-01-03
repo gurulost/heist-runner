@@ -66,8 +66,6 @@ interface Player {
   invincible: number;
 }
 
-}
-
 const GRAVITY = 0.6;
 const JUMP_FORCE = -14;
 const BASE_GROUND_Y = 350;
