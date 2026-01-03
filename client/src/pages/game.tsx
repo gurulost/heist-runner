@@ -712,8 +712,22 @@ export default function Game() {
         ctx.fillStyle = "#1a1a1a";
         ctx.fillRect(screenX, slideY, p.width + 10, SLIDE_HEIGHT - 5);
 
-        for (let i = 0; i < 4; i++) {
-          ctx.fillStyle = i % 2 === 0 ? "#ffffff" : "#1a1a1a";
+        ctx.fillStyle = "#ffccbc";
+        ctx.beginPath();
+        ctx.arc(screenX + p.width + 5, slideY + SLIDE_HEIGHT / 2, 10, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fillRect(screenX + p.width - 5, slideY + SLIDE_HEIGHT / 2 - 8, 20, 8);
+      } else {
+        const stripeWidth = 8;
+        const bodyTop = p.y + 20 + bounce;
+        const bodyHeight = p.height - 35;
+
+        for (let i = 0; i < Math.ceil((p.width - 10) / stripeWidth); i++) {
+          ctx.fillStyle = i % 2 === 0 ? "#1a1a1a" : "#ffffff";
+          const stripeX = screenX + 5 + i * stripeWidth;
+          const width = Math.min(stripeWidth, screenX + p.width - 5 - stripeX);
           ctx.fillRect(stripeX, bodyTop, width, bodyHeight);
         }
 
@@ -740,25 +754,26 @@ export default function Game() {
           ctx.fillRect(screenX + 8 + legOffset, p.y + p.height - 15, 10, 15);
           ctx.fillRect(screenX + p.width - 18 - legOffset, p.y + p.height - 15, 10, 15);
         }
-
-        ctx.fillStyle = "#8B4513";
-        ctx.beginPath();
-        ctx.ellipse(screenX + p.width + 5, p.y + 35 + bounce, 12, 8, 0.3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#FFD700";
-        ctx.font = "bold 8px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("$", screenX + p.width + 5, p.y + 38 + bounce);
-
-        if (p.state === "jumping" || p.state === "falling") {
-          ctx.fillStyle = "#ffccbc";
-          ctx.fillRect(screenX - 5, p.y + 25, 10, 5);
-          ctx.fillRect(screenX + p.width - 5, p.y + 25, 10, 5);
-        } else if (p.state === "swinging") {
-          ctx.fillStyle = "#ffccbc";
-          ctx.fillRect(screenX + p.width / 2 - 3, p.y - 10, 6, 15);
-        }
       }
+
+      ctx.fillStyle = "#8B4513";
+      ctx.beginPath();
+      ctx.ellipse(screenX + p.width + 5, p.y + 35 + bounce, 12, 8, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#FFD700";
+      ctx.font = "bold 8px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("$", screenX + p.width + 5, p.y + 38 + bounce);
+
+      if (p.state === "jumping" || p.state === "falling") {
+        ctx.fillStyle = "#ffccbc";
+        ctx.fillRect(screenX - 5, p.y + 25, 10, 5);
+        ctx.fillRect(screenX + p.width - 5, p.y + 25, 10, 5);
+      } else if (p.state === "swinging") {
+        ctx.fillStyle = "#ffccbc";
+        ctx.fillRect(screenX + p.width / 2 - 3, p.y - 10, 6, 15);
+      }
+
 
       ctx.restore();
     };
