@@ -324,6 +324,12 @@ export default function Game() {
         height = 300;
         // Guarantee a vine before the gap
         spawnVine(worldX - 150);
+
+        // Secondary vine for very large gaps to make crossing easier
+        if (width > 700) {
+          spawnVine(worldX + width / 2);
+        }
+
         game.lastVineX = worldX + width; // Mark the gap region as occupied to prevent autonomous vine clusters
 
         // Active Terrain Flattening: Snap any terrain overlapping the gap to BASE_GROUND_Y
@@ -1066,11 +1072,14 @@ export default function Game() {
       if (slope > 0.1) { // Upward slope
         p.vx = Math.max(4, p.vx - 0.05);
       } else if (slope < -0.1) { // Downward slope
-        const boost = p.state === "sliding" ? 0.8 : 0.05; // Big boost for sliding
-        p.vx = Math.min(35, p.vx + boost); // Raised cap to 35
+        const boost = p.state === "sliding" ? 1.5 : 0.05; // Insane boost for sliding
+        p.vx = Math.min(50, p.vx + boost); // Raised cap to 50
         if (p.state === "sliding") {
-          const particleCount = p.vx > 20 ? 6 : 2; // More particles for big speed
-          createParticles(p.x, p.y + p.height, "#ffffff", particleCount);
+          const particleCount = p.vx > 30 ? 8 : 2;
+          createParticles(p.x, p.y + p.height, "#ffffff", particleCount); // Speed air
+          if (game.frameCount % 2 === 0) {
+            createParticles(p.x, p.y + p.height, "#4a3728", 1); // Ground smoke/friction
+          }
         }
       } else {
         // Gradually return to base speed
@@ -1083,6 +1092,9 @@ export default function Game() {
 
       if (p.invincible > 0) p.invincible--;
 
+      // Scaling Difficulty: Police speed increases with distance
+      const difficultyMultiplier = 1 + (game.distanceTraveled / 5000);
+      game.police.speed = POLICE_SPEED * difficultyMultiplier;
       game.police.x += game.police.speed;
 
       const policeDistance = p.x - game.police.x;
@@ -1233,6 +1245,7 @@ export default function Game() {
       game.vines.forEach(vine => {
         if (p.state !== "swinging" && !game.vineGrabCooldown) {
           const vineScreenX = vine.x;
+          // Check collision with the tip of the vine
           const vineEndX = vineScreenX + Math.sin(vine.angle) * vine.length;
           const vineEndY = vine.anchorY + Math.cos(vine.angle) * vine.length;
 
@@ -1240,7 +1253,8 @@ export default function Game() {
           const dy = p.y - vineEndY;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          if (dist < 50 && game.keys.up && p.vy <= 5) {
+          // Magnetic Vines: Wider radius (80), no Up required, and wider speed window
+          if (dist < 80 && (p.state === "jumping" || p.state === "falling")) {
             p.state = "swinging";
             p.onVine = vine;
             game.vineSwingTime = 0;
@@ -1250,6 +1264,7 @@ export default function Game() {
             vine.angularVelocity = entrySpeed * 0.01 * (p.vx > 0 ? 1 : -1);
 
             p.vy = 0;
+            p.height = PLAYER_HEIGHT; // Reset height if grabbed during slide-jump
             soundRef.current.playVineGrab();
           }
         }
