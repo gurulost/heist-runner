@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Play, RotateCcw, Pause, Volume2, VolumeX, Trophy } from "lucide-react";
+import { Play, RotateCcw, Pause, Volume2, VolumeX, Trophy, AlertTriangle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { HighScore } from "@shared/schema";
 
@@ -21,7 +21,7 @@ interface Vine {
   anchorY: number;
   length: number;
   angle: number;
-  swingDirection: 1 | -1;
+  angularVelocity: number;
 }
 
 interface Coin {
@@ -40,27 +40,41 @@ interface Particle {
   color: string;
 }
 
+interface TerrainSegment {
+  startX: number;
+  endX: number;
+  startY: number;
+  endY: number;
+}
+
+interface PoliceCar {
+  x: number;
+  speed: number;
+}
+
 interface Player {
   x: number;
   y: number;
+  vx: number;
   vy: number;
   width: number;
   height: number;
   state: "running" | "jumping" | "sliding" | "swinging" | "falling";
   animFrame: number;
   onVine: Vine | null;
-  vineProgress: number;
   invincible: number;
 }
 
 const GRAVITY = 0.6;
 const JUMP_FORCE = -14;
-const GROUND_Y = 350;
+const BASE_GROUND_Y = 350;
 const PLAYER_WIDTH = 40;
 const PLAYER_HEIGHT = 50;
 const SLIDE_HEIGHT = 25;
-const GAME_SPEED_BASE = 6;
-const GAME_SPEED_INCREMENT = 0.0005;
+const PLAYER_BASE_SPEED = 6;
+const POLICE_SPEED = 5;
+const CANVAS_WIDTH = 960;
+const CANVAS_HEIGHT = 540;
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -77,6 +91,7 @@ export default function Game() {
   const [playerName, setPlayerName] = useState(() => {
     return localStorage.getItem("playerName") || "Player";
   });
+  const [policeWarning, setPoliceWarning] = useState(0);
 
   const { data: leaderboard = [] } = useQuery<HighScore[]>({
     queryKey: ["/api/highscores"],
@@ -90,67 +105,124 @@ export default function Game() {
       queryClient.invalidateQueries({ queryKey: ["/api/highscores"] });
     },
   });
-  
+
   const gameRef = useRef({
     player: {
-      x: 100,
-      y: GROUND_Y - PLAYER_HEIGHT,
+      x: CANVAS_WIDTH / 3,
+      y: BASE_GROUND_Y - PLAYER_HEIGHT,
+      vx: PLAYER_BASE_SPEED,
       vy: 0,
       width: PLAYER_WIDTH,
       height: PLAYER_HEIGHT,
       state: "running" as Player["state"],
       animFrame: 0,
       onVine: null as Vine | null,
-      vineProgress: 0,
       invincible: 0,
     },
+    police: {
+      x: -200,
+      speed: POLICE_SPEED,
+    } as PoliceCar,
+    cameraX: 0,
     obstacles: [] as Obstacle[],
     vines: [] as Vine[],
     coinsList: [] as Coin[],
     particles: [] as Particle[],
-    gameSpeed: GAME_SPEED_BASE,
+    terrain: [] as TerrainSegment[],
     distanceTraveled: 0,
     scoreValue: 0,
     coinsCollected: 0,
     frameCount: 0,
     keys: { up: false, down: false, left: false, right: false },
-    backgroundOffset: 0,
-    midgroundOffset: 0,
-    foregroundOffset: 0,
-    groundOffset: 0,
+    worldX: 0,
+    nextTerrainX: 0,
+    lastObstacleX: 0,
+    lastVineX: 0,
+    lastCoinX: 0,
+    vineSwingTime: 0,
+    vineGrabCooldown: 0,
   });
+
+  const getTerrainHeight = useCallback((worldX: number): number => {
+    const game = gameRef.current;
+    for (const segment of game.terrain) {
+      if (worldX >= segment.startX && worldX < segment.endX) {
+        const t = (worldX - segment.startX) / (segment.endX - segment.startX);
+        return segment.startY + (segment.endY - segment.startY) * t;
+      }
+    }
+    return BASE_GROUND_Y;
+  }, []);
+
+  const generateTerrain = useCallback((startX: number, count: number) => {
+    const game = gameRef.current;
+    let currentX = startX;
+    let currentY = game.terrain.length > 0 
+      ? game.terrain[game.terrain.length - 1].endY 
+      : BASE_GROUND_Y;
+
+    for (let i = 0; i < count; i++) {
+      const segmentWidth = 150 + Math.random() * 200;
+      const heightChange = (Math.random() - 0.5) * 80;
+      let targetY = currentY + heightChange;
+      targetY = Math.max(280, Math.min(400, targetY));
+
+      game.terrain.push({
+        startX: currentX,
+        endX: currentX + segmentWidth,
+        startY: currentY,
+        endY: targetY,
+      });
+
+      currentX += segmentWidth;
+      currentY = targetY;
+    }
+    game.nextTerrainX = currentX;
+  }, []);
 
   const resetGame = useCallback(() => {
     const game = gameRef.current;
     game.player = {
-      x: 100,
-      y: GROUND_Y - PLAYER_HEIGHT,
+      x: CANVAS_WIDTH / 3,
+      y: BASE_GROUND_Y - PLAYER_HEIGHT,
+      vx: PLAYER_BASE_SPEED,
       vy: 0,
       width: PLAYER_WIDTH,
       height: PLAYER_HEIGHT,
       state: "running",
       animFrame: 0,
       onVine: null,
-      vineProgress: 0,
       invincible: 0,
     };
+    game.police = {
+      x: -200,
+      speed: POLICE_SPEED,
+    };
+    game.cameraX = 0;
     game.obstacles = [];
     game.vines = [];
     game.coinsList = [];
     game.particles = [];
-    game.gameSpeed = GAME_SPEED_BASE;
+    game.terrain = [];
     game.distanceTraveled = 0;
     game.scoreValue = 0;
     game.coinsCollected = 0;
     game.frameCount = 0;
-    game.backgroundOffset = 0;
-    game.midgroundOffset = 0;
-    game.foregroundOffset = 0;
-    game.groundOffset = 0;
+    game.worldX = 0;
+    game.nextTerrainX = 0;
+    game.lastObstacleX = 0;
+    game.lastVineX = 0;
+    game.lastCoinX = 0;
+    game.vineSwingTime = 0;
+    game.vineGrabCooldown = 0;
+    
+    generateTerrain(0, 20);
+    
     setScore(0);
     setDistance(0);
     setCoins(0);
-  }, []);
+    setPoliceWarning(0);
+  }, [generateTerrain]);
 
   const startGame = useCallback(() => {
     resetGame();
@@ -184,7 +256,7 @@ export default function Game() {
     setGameState("gameover");
   }, [highScore, playerName, submitScoreMutation]);
 
-  const spawnObstacle = useCallback((canvasWidth: number) => {
+  const spawnObstacle = useCallback((worldX: number) => {
     const game = gameRef.current;
     const types: Obstacle["type"][] = ["spike", "log", "gap", "ramp"];
     const type = types[Math.floor(Math.random() * types.length)];
@@ -202,8 +274,8 @@ export default function Game() {
         height = 35;
         break;
       case "gap":
-        width = 100;
-        height = 200;
+        width = 120;
+        height = 300;
         break;
       case "ramp":
         width = 120;
@@ -212,34 +284,37 @@ export default function Game() {
     }
     
     game.obstacles.push({
-      x: canvasWidth + 100,
+      x: worldX,
       type,
       width,
       height,
       passed: false,
     });
+    game.lastObstacleX = worldX;
   }, []);
 
-  const spawnVine = useCallback((canvasWidth: number) => {
+  const spawnVine = useCallback((worldX: number) => {
     const game = gameRef.current;
     game.vines.push({
-      x: canvasWidth + 100,
-      anchorY: 0,
-      length: 150 + Math.random() * 100,
-      angle: -Math.PI / 6,
-      swingDirection: 1,
+      x: worldX,
+      anchorY: 20,
+      length: 180 + Math.random() * 80,
+      angle: -Math.PI / 4,
+      angularVelocity: 0,
     });
+    game.lastVineX = worldX;
   }, []);
 
-  const spawnCoin = useCallback((canvasWidth: number) => {
+  const spawnCoin = useCallback((worldX: number, groundY: number) => {
     const game = gameRef.current;
-    const yPositions = [GROUND_Y - 100, GROUND_Y - 150, GROUND_Y - 200];
+    const yPositions = [groundY - 80, groundY - 130, groundY - 180];
     game.coinsList.push({
-      x: canvasWidth + 50 + Math.random() * 200,
+      x: worldX,
       y: yPositions[Math.floor(Math.random() * yPositions.length)],
       collected: false,
       rotation: 0,
     });
+    game.lastCoinX = worldX;
   }, []);
 
   const createParticles = useCallback((x: number, y: number, color: string, count: number) => {
@@ -318,207 +393,261 @@ export default function Game() {
 
     const drawBackground = () => {
       const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      gradient.addColorStop(0, "#1a1a2e");
-      gradient.addColorStop(0.5, "#16213e");
-      gradient.addColorStop(1, "#0f3460");
+      gradient.addColorStop(0, "#87CEEB");
+      gradient.addColorStop(0.4, "#E0F0FF");
+      gradient.addColorStop(1, "#B0C4DE");
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-      for (let i = 0; i < 50; i++) {
-        const x = ((i * 73 + game.backgroundOffset * 0.1) % (canvas.width + 20)) - 10;
-        const y = (i * 37) % (canvas.height * 0.6);
-        const size = (i % 3) + 1;
+      ctx.fillStyle = "#708090";
+      for (let i = 0; i < 6; i++) {
+        const x = ((i * 200 - game.cameraX * 0.1) % (canvas.width + 400)) - 200;
+        const height = 80 + (i % 3) * 40;
         ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.moveTo(x, canvas.height - 150);
+        ctx.lineTo(x + 60, canvas.height - 150 - height);
+        ctx.lineTo(x + 100, canvas.height - 150 - height + 20);
+        ctx.lineTo(x + 140, canvas.height - 150 - height - 10);
+        ctx.lineTo(x + 200, canvas.height - 150);
         ctx.fill();
       }
 
-      ctx.fillStyle = "rgba(34, 87, 122, 0.4)";
-      for (let i = 0; i < 8; i++) {
-        const x = ((i * 150 - game.backgroundOffset * 0.2) % (canvas.width + 300)) - 150;
-        const height = 100 + (i % 3) * 50;
-        ctx.beginPath();
-        ctx.moveTo(x, canvas.height - 100);
-        ctx.lineTo(x + 75, canvas.height - 100 - height);
-        ctx.lineTo(x + 150, canvas.height - 100);
-        ctx.fill();
-      }
-
-      ctx.fillStyle = "rgba(46, 125, 50, 0.3)";
-      for (let i = 0; i < 12; i++) {
-        const x = ((i * 100 - game.midgroundOffset * 0.5) % (canvas.width + 200)) - 100;
-        const height = 60 + (i % 4) * 30;
-        ctx.beginPath();
-        ctx.ellipse(x + 50, canvas.height - 80, 40, height / 2, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.fillStyle = "rgba(27, 94, 32, 0.5)";
+      ctx.fillStyle = "#228B22";
       for (let i = 0; i < 15; i++) {
-        const x = ((i * 80 - game.foregroundOffset * 0.8) % (canvas.width + 160)) - 80;
-        const height = 40 + (i % 3) * 20;
+        const x = ((i * 100 - game.cameraX * 0.3) % (canvas.width + 200)) - 100;
+        const height = 40 + (i % 4) * 20;
         ctx.beginPath();
-        ctx.ellipse(x + 40, canvas.height - 60, 30, height / 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(x + 50, canvas.height - 100, 35, height / 2, 0, 0, Math.PI * 2);
         ctx.fill();
       }
     };
 
-    const drawGround = () => {
-      const groundGradient = ctx.createLinearGradient(0, GROUND_Y, 0, canvas.height);
-      groundGradient.addColorStop(0, "#4a2c2a");
-      groundGradient.addColorStop(0.3, "#3e2723");
-      groundGradient.addColorStop(1, "#1b0f0e");
-      ctx.fillStyle = groundGradient;
-      ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+    const drawTerrain = () => {
+      const visibleStart = game.cameraX - 100;
+      const visibleEnd = game.cameraX + canvas.width + 100;
 
-      ctx.fillStyle = "#5d4037";
-      ctx.fillRect(0, GROUND_Y, canvas.width, 8);
+      ctx.fillStyle = "#3d2817";
+      ctx.beginPath();
+      
+      let started = false;
+      for (const segment of game.terrain) {
+        if (segment.endX < visibleStart) continue;
+        if (segment.startX > visibleEnd) break;
 
-      ctx.fillStyle = "#2e7d32";
-      for (let i = 0; i < canvas.width / 15; i++) {
-        const x = ((i * 15 - game.groundOffset) % canvas.width);
-        const height = 8 + Math.sin(i * 0.5) * 4;
-        ctx.beginPath();
-        ctx.moveTo(x, GROUND_Y);
-        ctx.lineTo(x + 4, GROUND_Y - height);
-        ctx.lineTo(x + 8, GROUND_Y);
-        ctx.fill();
+        const screenStartX = segment.startX - game.cameraX;
+        const screenEndX = segment.endX - game.cameraX;
+
+        if (!started) {
+          ctx.moveTo(screenStartX, segment.startY);
+          started = true;
+        }
+        ctx.lineTo(screenEndX, segment.endY);
       }
+      
+      ctx.lineTo(canvas.width + 100, canvas.height);
+      ctx.lineTo(-100, canvas.height);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "#2d8a2d";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      started = false;
+      for (const segment of game.terrain) {
+        if (segment.endX < visibleStart) continue;
+        if (segment.startX > visibleEnd) break;
+
+        const screenStartX = segment.startX - game.cameraX;
+        const screenEndX = segment.endX - game.cameraX;
+
+        if (!started) {
+          ctx.moveTo(screenStartX, segment.startY);
+          started = true;
+        }
+        ctx.lineTo(screenEndX, segment.endY);
+      }
+      ctx.stroke();
     };
 
     const drawPlayer = () => {
       const p = game.player;
+      const screenX = p.x - game.cameraX;
+      
       ctx.save();
       
       if (p.invincible > 0 && Math.floor(game.frameCount / 5) % 2 === 0) {
         ctx.globalAlpha = 0.5;
       }
 
-      const bodyColor = "#e53935";
-      const skinColor = "#ffccbc";
-      const hairColor = "#3e2723";
-
       if (p.state === "swinging" && p.onVine) {
-        ctx.translate(p.x + p.width / 2, p.y + p.height / 2);
+        ctx.translate(screenX + p.width / 2, p.y + p.height / 2);
         ctx.rotate(p.onVine.angle * 0.3);
-        ctx.translate(-(p.x + p.width / 2), -(p.y + p.height / 2));
+        ctx.translate(-(screenX + p.width / 2), -(p.y + p.height / 2));
       }
 
+      const bounce = p.state === "running" ? Math.sin(game.frameCount * 0.3) * 2 : 0;
+
       if (p.state === "sliding") {
-        ctx.fillStyle = bodyColor;
-        ctx.fillRect(p.x, p.y + p.height - SLIDE_HEIGHT, p.width + 10, SLIDE_HEIGHT - 5);
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fillRect(screenX, p.y + p.height - SLIDE_HEIGHT, p.width + 10, SLIDE_HEIGHT - 5);
         
-        ctx.fillStyle = skinColor;
+        for (let i = 0; i < 4; i++) {
+          ctx.fillStyle = i % 2 === 0 ? "#ffffff" : "#1a1a1a";
+          ctx.fillRect(screenX + i * 12, p.y + p.height - SLIDE_HEIGHT, 12, SLIDE_HEIGHT - 5);
+        }
+        
+        ctx.fillStyle = "#ffccbc";
         ctx.beginPath();
-        ctx.arc(p.x + p.width + 5, p.y + p.height - SLIDE_HEIGHT / 2, 10, 0, Math.PI * 2);
+        ctx.arc(screenX + p.width + 5, p.y + p.height - SLIDE_HEIGHT / 2, 10, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = hairColor;
-        ctx.beginPath();
-        ctx.arc(p.x + p.width + 5, p.y + p.height - SLIDE_HEIGHT / 2 - 5, 8, Math.PI, 0);
-        ctx.fill();
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fillRect(screenX + p.width - 5, p.y + p.height - SLIDE_HEIGHT / 2 - 8, 20, 8);
       } else {
-        ctx.fillStyle = bodyColor;
-        const bounce = p.state === "running" ? Math.sin(game.frameCount * 0.3) * 2 : 0;
-        ctx.fillRect(p.x + 5, p.y + 20 + bounce, p.width - 10, p.height - 35);
+        const stripeWidth = 8;
+        const bodyTop = p.y + 20 + bounce;
+        const bodyHeight = p.height - 35;
+        
+        for (let i = 0; i < Math.ceil((p.width - 10) / stripeWidth); i++) {
+          ctx.fillStyle = i % 2 === 0 ? "#1a1a1a" : "#ffffff";
+          const stripeX = screenX + 5 + i * stripeWidth;
+          const width = Math.min(stripeWidth, screenX + p.width - 5 - stripeX);
+          ctx.fillRect(stripeX, bodyTop, width, bodyHeight);
+        }
 
-        ctx.fillStyle = skinColor;
+        ctx.fillStyle = "#ffccbc";
         ctx.beginPath();
-        ctx.arc(p.x + p.width / 2, p.y + 12 + bounce, 12, 0, Math.PI * 2);
+        ctx.arc(screenX + p.width / 2, p.y + 12 + bounce, 12, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = hairColor;
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fillRect(screenX + p.width / 2 - 15, p.y + 8 + bounce, 30, 10);
+
+        ctx.fillStyle = "#ffffff";
         ctx.beginPath();
-        ctx.arc(p.x + p.width / 2, p.y + 8 + bounce, 10, Math.PI, 0);
+        ctx.arc(screenX + p.width / 2 - 5, p.y + 12 + bounce, 3, 0, Math.PI * 2);
+        ctx.arc(screenX + p.width / 2 + 5, p.y + 12 + bounce, 3, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = "#1565c0";
-        ctx.fillRect(p.x + 8, p.y + p.height - 15, 10, 15);
-        ctx.fillRect(p.x + p.width - 18, p.y + p.height - 15, 10, 15);
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fillRect(screenX + 8, p.y + p.height - 15, 10, 15);
+        ctx.fillRect(screenX + p.width - 18, p.y + p.height - 15, 10, 15);
 
         if (p.state === "running") {
           const legOffset = Math.sin(game.frameCount * 0.4) * 5;
-          ctx.fillRect(p.x + 8 + legOffset, p.y + p.height - 15, 10, 15);
-          ctx.fillRect(p.x + p.width - 18 - legOffset, p.y + p.height - 15, 10, 15);
+          ctx.fillRect(screenX + 8 + legOffset, p.y + p.height - 15, 10, 15);
+          ctx.fillRect(screenX + p.width - 18 - legOffset, p.y + p.height - 15, 10, 15);
         }
 
+        ctx.fillStyle = "#8B4513";
+        ctx.beginPath();
+        ctx.ellipse(screenX + p.width + 5, p.y + 35 + bounce, 12, 8, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#FFD700";
+        ctx.font = "bold 8px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("$", screenX + p.width + 5, p.y + 38 + bounce);
+
         if (p.state === "jumping" || p.state === "falling") {
-          ctx.fillStyle = skinColor;
-          ctx.fillRect(p.x - 5, p.y + 25, 10, 5);
-          ctx.fillRect(p.x + p.width - 5, p.y + 25, 10, 5);
+          ctx.fillStyle = "#ffccbc";
+          ctx.fillRect(screenX - 5, p.y + 25, 10, 5);
+          ctx.fillRect(screenX + p.width - 5, p.y + 25, 10, 5);
         } else if (p.state === "swinging") {
-          ctx.fillStyle = skinColor;
-          ctx.fillRect(p.x + p.width / 2 - 3, p.y - 10, 6, 15);
+          ctx.fillStyle = "#ffccbc";
+          ctx.fillRect(screenX + p.width / 2 - 3, p.y - 10, 6, 15);
         }
       }
 
       ctx.restore();
     };
 
+    const drawPolice = () => {
+      const police = game.police;
+      const screenX = police.x - game.cameraX;
+      
+      if (screenX > -100) {
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fillRect(screenX, BASE_GROUND_Y - 40, 80, 30);
+        
+        ctx.fillStyle = "#2563eb";
+        ctx.fillRect(screenX + 10, BASE_GROUND_Y - 55, 60, 15);
+        
+        const lightOn = Math.floor(game.frameCount / 10) % 2 === 0;
+        ctx.fillStyle = lightOn ? "#ef4444" : "#3b82f6";
+        ctx.beginPath();
+        ctx.arc(screenX + 25, BASE_GROUND_Y - 60, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = lightOn ? "#3b82f6" : "#ef4444";
+        ctx.beginPath();
+        ctx.arc(screenX + 55, BASE_GROUND_Y - 60, 6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = "#1a1a1a";
+        ctx.beginPath();
+        ctx.arc(screenX + 15, BASE_GROUND_Y - 5, 10, 0, Math.PI * 2);
+        ctx.arc(screenX + 65, BASE_GROUND_Y - 5, 10, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = "#87CEEB";
+        ctx.fillRect(screenX + 15, BASE_GROUND_Y - 50, 20, 12);
+        ctx.fillRect(screenX + 45, BASE_GROUND_Y - 50, 20, 12);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 10px sans-serif";
+        ctx.fillText("POLICE", screenX + 40, BASE_GROUND_Y - 25);
+      }
+    };
+
     const drawObstacle = (obs: Obstacle) => {
+      const screenX = obs.x - game.cameraX;
+      const groundY = getTerrainHeight(obs.x + obs.width / 2);
+      
       ctx.save();
       
       switch (obs.type) {
         case "spike":
-          const spikeGradient = ctx.createLinearGradient(obs.x, GROUND_Y, obs.x, GROUND_Y - obs.height);
+          const spikeGradient = ctx.createLinearGradient(screenX, groundY, screenX, groundY - obs.height);
           spikeGradient.addColorStop(0, "#757575");
           spikeGradient.addColorStop(1, "#bdbdbd");
           ctx.fillStyle = spikeGradient;
           ctx.beginPath();
-          ctx.moveTo(obs.x, GROUND_Y);
-          ctx.lineTo(obs.x + obs.width / 2, GROUND_Y - obs.height);
-          ctx.lineTo(obs.x + obs.width, GROUND_Y);
+          ctx.moveTo(screenX, groundY);
+          ctx.lineTo(screenX + obs.width / 2, groundY - obs.height);
+          ctx.lineTo(screenX + obs.width, groundY);
           ctx.closePath();
           ctx.fill();
-          ctx.strokeStyle = "#424242";
-          ctx.lineWidth = 2;
-          ctx.stroke();
           break;
           
         case "log":
           ctx.fillStyle = "#5d4037";
           ctx.beginPath();
-          ctx.ellipse(obs.x + obs.width / 2, GROUND_Y - obs.height / 2, obs.width / 2, obs.height / 2, 0, 0, Math.PI * 2);
+          ctx.ellipse(screenX + obs.width / 2, groundY - obs.height / 2, obs.width / 2, obs.height / 2, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = "#8d6e63";
           ctx.beginPath();
-          ctx.ellipse(obs.x + obs.width / 2 - 5, GROUND_Y - obs.height / 2, obs.width / 2 - 8, obs.height / 2 - 5, 0, 0, Math.PI * 2);
+          ctx.ellipse(screenX + obs.width / 2 - 5, groundY - obs.height / 2, obs.width / 2 - 8, obs.height / 2 - 5, 0, 0, Math.PI * 2);
           ctx.fill();
-          for (let i = 0; i < 3; i++) {
-            ctx.strokeStyle = "#4e342e";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(obs.x + obs.width / 2 - 5, GROUND_Y - obs.height / 2, 5 + i * 8, 0, Math.PI * 2);
-            ctx.stroke();
-          }
           break;
           
         case "gap":
-          ctx.fillStyle = "#0d0d0d";
-          ctx.fillRect(obs.x, GROUND_Y, obs.width, obs.height);
+          ctx.fillStyle = "#0a0a0a";
+          ctx.fillRect(screenX, groundY, obs.width, obs.height);
           ctx.fillStyle = "#3e2723";
-          ctx.fillRect(obs.x - 5, GROUND_Y, 5, 20);
-          ctx.fillRect(obs.x + obs.width, GROUND_Y, 5, 20);
+          ctx.fillRect(screenX - 5, groundY, 5, 20);
+          ctx.fillRect(screenX + obs.width, groundY, 5, 20);
           break;
           
         case "ramp":
-          const rampGradient = ctx.createLinearGradient(obs.x, GROUND_Y, obs.x + obs.width, GROUND_Y - obs.height);
+          const rampGradient = ctx.createLinearGradient(screenX, groundY, screenX + obs.width, groundY - obs.height);
           rampGradient.addColorStop(0, "#795548");
           rampGradient.addColorStop(1, "#a1887f");
           ctx.fillStyle = rampGradient;
           ctx.beginPath();
-          ctx.moveTo(obs.x, GROUND_Y);
-          ctx.lineTo(obs.x + obs.width, GROUND_Y - obs.height);
-          ctx.lineTo(obs.x + obs.width, GROUND_Y);
+          ctx.moveTo(screenX, groundY);
+          ctx.lineTo(screenX + obs.width, groundY - obs.height);
+          ctx.lineTo(screenX + obs.width, groundY);
           ctx.closePath();
           ctx.fill();
-          ctx.strokeStyle = "#5d4037";
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.moveTo(obs.x, GROUND_Y);
-          ctx.lineTo(obs.x + obs.width, GROUND_Y - obs.height);
-          ctx.stroke();
           break;
       }
       
@@ -526,48 +655,56 @@ export default function Game() {
     };
 
     const drawVine = (vine: Vine) => {
-      const endX = vine.x + Math.sin(vine.angle) * vine.length;
+      const screenX = vine.x - game.cameraX;
+      const endX = screenX + Math.sin(vine.angle) * vine.length;
       const endY = vine.anchorY + Math.cos(vine.angle) * vine.length;
 
       ctx.strokeStyle = "#2e7d32";
-      ctx.lineWidth = 6;
+      ctx.lineWidth = 8;
       ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.moveTo(vine.x, vine.anchorY);
+      ctx.moveTo(screenX, vine.anchorY);
       
-      const cp1x = vine.x + Math.sin(vine.angle * 0.5) * vine.length * 0.3;
+      const cp1x = screenX + Math.sin(vine.angle * 0.5) * vine.length * 0.3;
       const cp1y = vine.anchorY + vine.length * 0.3;
-      const cp2x = vine.x + Math.sin(vine.angle * 0.8) * vine.length * 0.7;
+      const cp2x = screenX + Math.sin(vine.angle * 0.8) * vine.length * 0.7;
       const cp2y = vine.anchorY + vine.length * 0.7;
       
       ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY);
       ctx.stroke();
 
       ctx.strokeStyle = "#1b5e20";
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
       ctx.stroke();
 
       ctx.fillStyle = "#4caf50";
       for (let i = 0; i < 5; i++) {
         const t = (i + 1) / 6;
-        const leafX = vine.x + Math.sin(vine.angle * t) * vine.length * t;
+        const leafX = screenX + Math.sin(vine.angle * t) * vine.length * t;
         const leafY = vine.anchorY + vine.length * t;
         ctx.beginPath();
-        ctx.ellipse(leafX + 8, leafY, 6, 3, Math.PI / 4, 0, Math.PI * 2);
+        ctx.ellipse(leafX + 10, leafY, 8, 4, Math.PI / 4, 0, Math.PI * 2);
         ctx.fill();
       }
 
       ctx.fillStyle = "#8d6e63";
       ctx.beginPath();
-      ctx.arc(vine.x, vine.anchorY, 8, 0, Math.PI * 2);
+      ctx.arc(screenX, vine.anchorY, 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#ff5722";
+      ctx.beginPath();
+      ctx.arc(endX, endY, 8, 0, Math.PI * 2);
       ctx.fill();
     };
 
     const drawCoin = (coin: Coin) => {
       if (coin.collected) return;
       
+      const screenX = coin.x - game.cameraX;
+      
       ctx.save();
-      ctx.translate(coin.x, coin.y);
+      ctx.translate(screenX, coin.y);
       ctx.rotate(coin.rotation);
       
       const scale = Math.abs(Math.cos(coin.rotation));
@@ -597,10 +734,11 @@ export default function Game() {
 
     const drawParticles = () => {
       game.particles.forEach(p => {
+        const screenX = p.x - game.cameraX;
         ctx.globalAlpha = p.life;
         ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 4 * p.life, 0, Math.PI * 2);
+        ctx.arc(screenX, p.y, 4 * p.life, 0, Math.PI * 2);
         ctx.fill();
       });
       ctx.globalAlpha = 1;
@@ -613,18 +751,19 @@ export default function Game() {
       const pRight = player.x + player.width;
       const pTop = player.y;
       const pBottom = player.y + (player.state === "sliding" ? SLIDE_HEIGHT : player.height);
+      const groundY = getTerrainHeight(obs.x + obs.width / 2);
 
       switch (obs.type) {
         case "spike":
           const spikeLeft = obs.x + 5;
           const spikeRight = obs.x + obs.width - 5;
-          const spikeTop = GROUND_Y - obs.height;
-          const spikeBottom = GROUND_Y;
+          const spikeTop = groundY - obs.height;
+          const spikeBottom = groundY;
           return pRight > spikeLeft && pLeft < spikeRight && pBottom > spikeTop && pTop < spikeBottom;
           
         case "log":
           const logCenterX = obs.x + obs.width / 2;
-          const logCenterY = GROUND_Y - obs.height / 2;
+          const logCenterY = groundY - obs.height / 2;
           const playerCenterX = player.x + player.width / 2;
           const playerCenterY = player.y + (player.state === "sliding" ? SLIDE_HEIGHT : player.height) / 2;
           const dx = playerCenterX - logCenterX;
@@ -633,8 +772,18 @@ export default function Game() {
           return distance < (obs.width / 2 + player.width / 3);
           
         case "gap":
-          if (pBottom >= GROUND_Y - 5 && pRight > obs.x + 10 && pLeft < obs.x + obs.width - 10) {
-            return true;
+          const playerCenterXGap = player.x + player.width / 2;
+          const gapLeft = obs.x + 30;
+          const gapRight = obs.x + obs.width - 30;
+          
+          if (playerCenterXGap > gapLeft && playerCenterXGap < gapRight) {
+            const leftEdgeGround = getTerrainHeight(obs.x - 10);
+            const rightEdgeGround = getTerrainHeight(obs.x + obs.width + 10);
+            const lowestEdge = Math.max(leftEdgeGround, rightEdgeGround);
+            
+            if (pBottom >= lowestEdge + 150) {
+              return true;
+            }
           }
           return false;
           
@@ -648,44 +797,77 @@ export default function Game() {
       const p = game.player;
       game.frameCount++;
 
-      game.gameSpeed = GAME_SPEED_BASE + game.distanceTraveled * GAME_SPEED_INCREMENT;
-      game.distanceTraveled += game.gameSpeed * 0.1;
-      game.scoreValue = Math.floor(game.distanceTraveled * 10) + game.coinsCollected * 100;
+      if (game.frameCount % 60 === 0 && game.police.speed < p.vx + 2) {
+        game.police.speed += 0.02;
+      }
 
-      game.backgroundOffset += game.gameSpeed;
-      game.midgroundOffset += game.gameSpeed;
-      game.foregroundOffset += game.gameSpeed;
-      game.groundOffset += game.gameSpeed;
+      game.distanceTraveled += p.vx * 0.1;
+      game.scoreValue = Math.floor(game.distanceTraveled * 10) + game.coinsCollected * 100;
 
       if (p.invincible > 0) p.invincible--;
 
+      game.police.x += game.police.speed;
+
+      const policeDistance = p.x - game.police.x;
+      if (policeDistance < 150) {
+        setPoliceWarning(Math.min(100, (150 - policeDistance) / 150 * 100));
+      } else {
+        setPoliceWarning(0);
+      }
+
+      if (game.police.x + 80 >= p.x) {
+        createParticles(p.x, p.y + p.height / 2, "#ef4444", 15);
+        gameOver();
+        return;
+      }
+
       if (p.state === "swinging" && p.onVine) {
         const vine = p.onVine;
-        vine.angle += vine.swingDirection * 0.03;
         
-        if (vine.angle > Math.PI / 3) vine.swingDirection = -1;
-        if (vine.angle < -Math.PI / 3) vine.swingDirection = 1;
+        const gravity = 0.002;
+        vine.angularVelocity += -gravity * Math.sin(vine.angle);
+        vine.angularVelocity *= 0.998;
+        vine.angle += vine.angularVelocity;
 
-        p.x = vine.x + Math.sin(vine.angle) * vine.length - p.width / 2;
+        const vineScreenX = vine.x;
+        p.x = vineScreenX + Math.sin(vine.angle) * vine.length - p.width / 2;
         p.y = vine.anchorY + Math.cos(vine.angle) * vine.length - p.height / 2;
 
-        if (game.keys.up) {
+        game.vineSwingTime = (game.vineSwingTime || 0) + 1;
+        
+        if (!game.keys.up && game.vineSwingTime > 10) {
+          const releaseSpeed = vine.angularVelocity * vine.length;
+          
+          const forwardBoost = Math.max(0, Math.cos(vine.angle)) * Math.abs(releaseSpeed) * 2;
+          p.vx = PLAYER_BASE_SPEED + forwardBoost + 4;
+          p.vy = -Math.abs(Math.sin(vine.angle) * releaseSpeed) * 1.5 - 8;
+          
+          p.vx = Math.max(PLAYER_BASE_SPEED + 2, Math.min(p.vx, PLAYER_BASE_SPEED * 4));
+          
           p.state = "jumping";
-          p.vy = JUMP_FORCE * 0.8;
           p.onVine = null;
-          createParticles(p.x + p.width / 2, p.y + p.height / 2, "#4caf50", 5);
+          game.vineSwingTime = 0;
+          createParticles(p.x + p.width / 2, p.y + p.height / 2, "#4caf50", 10);
         }
       } else {
-        if (game.keys.down && p.y >= GROUND_Y - PLAYER_HEIGHT - 5 && p.state !== "jumping") {
+        if (p.vx > PLAYER_BASE_SPEED) {
+          p.vx -= 0.05;
+        } else {
+          p.vx = PLAYER_BASE_SPEED;
+        }
+
+        const groundY = getTerrainHeight(p.x + p.width / 2);
+
+        if (game.keys.down && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "jumping") {
           p.state = "sliding";
           p.height = SLIDE_HEIGHT;
         } else if (!game.keys.down && p.state === "sliding") {
           p.state = "running";
           p.height = PLAYER_HEIGHT;
-          p.y = GROUND_Y - PLAYER_HEIGHT;
+          p.y = groundY - PLAYER_HEIGHT;
         }
 
-        if (game.keys.up && p.y >= GROUND_Y - PLAYER_HEIGHT - 5 && p.state !== "swinging") {
+        if (game.keys.up && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "swinging") {
           p.vy = JUMP_FORCE;
           p.state = "jumping";
           createParticles(p.x + p.width / 2, p.y + p.height, "#8d6e63", 3);
@@ -693,74 +875,96 @@ export default function Game() {
 
         p.vy += GRAVITY;
         p.y += p.vy;
+        p.x += p.vx;
 
         let onRamp = false;
+        let overGap = false;
+        
         game.obstacles.forEach(obs => {
           if (obs.type === "ramp") {
+            const obsGroundY = getTerrainHeight(obs.x + obs.width / 2);
             const rampProgress = (p.x + p.width / 2 - obs.x) / obs.width;
             if (rampProgress > 0 && rampProgress < 1) {
-              const rampY = GROUND_Y - (rampProgress * obs.height);
+              const rampY = obsGroundY - (rampProgress * obs.height);
               if (p.y + p.height > rampY && p.vy >= 0) {
                 p.y = rampY - p.height;
                 p.vy = 0;
                 onRamp = true;
                 if (game.keys.down) {
-                  p.vy = -5;
-                  game.gameSpeed += 2;
+                  p.vy = -8;
+                  p.vx += 3;
                 }
               }
             }
           }
+          if (obs.type === "gap") {
+            const playerCenterX = p.x + p.width / 2;
+            if (playerCenterX > obs.x + 10 && playerCenterX < obs.x + obs.width - 10) {
+              overGap = true;
+            }
+          }
         });
 
-        if (!onRamp && p.y >= GROUND_Y - (p.state === "sliding" ? SLIDE_HEIGHT : PLAYER_HEIGHT)) {
-          p.y = GROUND_Y - (p.state === "sliding" ? SLIDE_HEIGHT : PLAYER_HEIGHT);
-          p.vy = 0;
-          if (p.state === "jumping" || p.state === "falling") {
-            p.state = game.keys.down ? "sliding" : "running";
-            createParticles(p.x + p.width / 2, p.y + p.height, "#8d6e63", 2);
+        if (!onRamp && !overGap) {
+          const currentGroundY = getTerrainHeight(p.x + p.width / 2);
+          if (p.y + p.height >= currentGroundY) {
+            p.y = currentGroundY - (p.state === "sliding" ? SLIDE_HEIGHT : PLAYER_HEIGHT);
+            p.vy = 0;
+            if (p.state === "jumping" || p.state === "falling") {
+              p.state = game.keys.down ? "sliding" : "running";
+              createParticles(p.x + p.width / 2, p.y + p.height, "#8d6e63", 2);
+            }
+          } else if (p.y > groundY - PLAYER_HEIGHT + 20 && p.state !== "jumping") {
+            p.state = "falling";
           }
-        } else if (p.y < GROUND_Y - PLAYER_HEIGHT && p.state !== "jumping") {
+        } else if (overGap && p.state !== "jumping" && p.state !== "swinging") {
           p.state = "falling";
         }
       }
 
       game.vines.forEach(vine => {
-        if (p.state !== "swinging") {
-          const vineEndX = vine.x + Math.sin(vine.angle) * vine.length;
+        if (p.state !== "swinging" && !game.vineGrabCooldown) {
+          const vineScreenX = vine.x;
+          const vineEndX = vineScreenX + Math.sin(vine.angle) * vine.length;
           const vineEndY = vine.anchorY + Math.cos(vine.angle) * vine.length;
           
           const dx = (p.x + p.width / 2) - vineEndX;
-          const dy = (p.y) - vineEndY;
+          const dy = p.y - vineEndY;
           const dist = Math.sqrt(dx * dx + dy * dy);
           
-          if (dist < 40 && game.keys.up) {
+          if (dist < 50 && game.keys.up && p.vy <= 5) {
             p.state = "swinging";
             p.onVine = vine;
+            game.vineSwingTime = 0;
+            game.vineGrabCooldown = 15;
+            
+            const entrySpeed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+            vine.angularVelocity = entrySpeed * 0.01 * (p.vx > 0 ? 1 : -1);
+            
             p.vy = 0;
           }
         }
       });
+      
+      if (game.vineGrabCooldown > 0) {
+        game.vineGrabCooldown--;
+      }
 
       game.obstacles = game.obstacles.filter(obs => {
-        obs.x -= game.gameSpeed;
-        
         if (checkCollision(p, obs)) {
           createParticles(p.x + p.width / 2, p.y + p.height / 2, "#e53935", 10);
           gameOver();
           return false;
         }
         
-        return obs.x > -obs.width - 50;
+        return obs.x > game.cameraX - 200;
       });
 
       game.vines = game.vines.filter(vine => {
-        vine.x -= game.gameSpeed;
-        return vine.x > -100;
+        return vine.x > game.cameraX - 200;
       });
 
       game.coinsList.forEach(coin => {
-        coin.x -= game.gameSpeed;
         coin.rotation += 0.1;
         
         if (!coin.collected) {
@@ -773,7 +977,7 @@ export default function Game() {
           }
         }
       });
-      game.coinsList = game.coinsList.filter(c => c.x > -30);
+      game.coinsList = game.coinsList.filter(c => c.x > game.cameraX - 50);
 
       game.particles = game.particles.filter(particle => {
         particle.x += particle.vx;
@@ -783,15 +987,28 @@ export default function Game() {
         return particle.life > 0;
       });
 
-      if (game.frameCount % 120 === 0 && Math.random() > 0.3) {
-        spawnObstacle(canvas.width);
+      game.cameraX = p.x - CANVAS_WIDTH / 3;
+
+      const spawnX = game.cameraX + CANVAS_WIDTH + 200;
+      
+      if (spawnX - game.lastObstacleX > 300 + Math.random() * 200) {
+        spawnObstacle(spawnX);
       }
-      if (game.frameCount % 200 === 0 && Math.random() > 0.5) {
-        spawnVine(canvas.width);
+      
+      if (spawnX - game.lastVineX > 500 + Math.random() * 300) {
+        spawnVine(spawnX);
       }
-      if (game.frameCount % 60 === 0 && Math.random() > 0.4) {
-        spawnCoin(canvas.width);
+      
+      if (spawnX - game.lastCoinX > 100 + Math.random() * 100) {
+        const groundY = getTerrainHeight(spawnX);
+        spawnCoin(spawnX, groundY);
       }
+
+      if (game.nextTerrainX < spawnX + 500) {
+        generateTerrain(game.nextTerrainX, 10);
+      }
+
+      game.terrain = game.terrain.filter(seg => seg.endX > game.cameraX - 200);
 
       setScore(game.scoreValue);
       setDistance(Math.floor(game.distanceTraveled));
@@ -805,11 +1022,12 @@ export default function Game() {
       
       game.vines.forEach(drawVine);
       
-      drawGround();
+      drawTerrain();
       
       game.obstacles.forEach(drawObstacle);
       game.coinsList.forEach(drawCoin);
       
+      drawPolice();
       drawPlayer();
       
       drawParticles();
@@ -826,7 +1044,7 @@ export default function Game() {
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [gameState, gameOver, spawnObstacle, spawnVine, spawnCoin, createParticles]);
+  }, [gameState, gameOver, spawnObstacle, spawnVine, spawnCoin, createParticles, getTerrainHeight, generateTerrain]);
 
   useEffect(() => {
     if (gameState !== "start" && gameState !== "gameover" && gameState !== "paused") return;
@@ -835,8 +1053,6 @@ export default function Game() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-
-    const game = gameRef.current;
 
     const drawStaticBackground = () => {
       const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -856,23 +1072,12 @@ export default function Game() {
         ctx.fill();
       }
 
-      ctx.fillStyle = "rgba(34, 87, 122, 0.5)";
-      for (let i = 0; i < 6; i++) {
-        const x = i * 180 - 50;
-        const height = 120 + (i % 3) * 60;
-        ctx.beginPath();
-        ctx.moveTo(x, canvas.height - 80);
-        ctx.lineTo(x + 90, canvas.height - 80 - height);
-        ctx.lineTo(x + 180, canvas.height - 80);
-        ctx.fill();
-      }
-
-      const groundGradient = ctx.createLinearGradient(0, GROUND_Y, 0, canvas.height);
-      groundGradient.addColorStop(0, "#4a2c2a");
-      groundGradient.addColorStop(0.3, "#3e2723");
+      const groundGradient = ctx.createLinearGradient(0, BASE_GROUND_Y, 0, canvas.height);
+      groundGradient.addColorStop(0, "#3d2817");
+      groundGradient.addColorStop(0.3, "#2d1f12");
       groundGradient.addColorStop(1, "#1b0f0e");
       ctx.fillStyle = groundGradient;
-      ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+      ctx.fillRect(0, BASE_GROUND_Y, canvas.width, canvas.height - BASE_GROUND_Y);
     };
 
     drawStaticBackground();
@@ -925,10 +1130,17 @@ export default function Game() {
           </div>
         )}
 
+        {gameState === "playing" && policeWarning > 0 && (
+          <div className="absolute top-20 left-4 flex items-center gap-2 pointer-events-none animate-pulse">
+            <AlertTriangle className="w-6 h-6 text-red-500" />
+            <span className="text-red-500 font-bold drop-shadow-lg">POLICE CATCHING UP!</span>
+          </div>
+        )}
+
         {gameState === "playing" && (
           <div className="absolute bottom-4 left-0 right-0 text-center pointer-events-none">
             <div className="text-sm text-white/60 drop-shadow">
-              Press UP to jump | DOWN to slide | Grab vines!
+              Press UP to jump | DOWN to slide | Grab vines to swing!
             </div>
           </div>
         )}
@@ -936,13 +1148,13 @@ export default function Game() {
         {gameState === "start" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-lg overflow-y-auto py-8">
             <h1 
-              className="text-4xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-green-300 to-teal-400 mb-2 md:mb-4 animate-pulse"
+              className="text-4xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-orange-300 to-yellow-400 mb-2 md:mb-4 animate-pulse"
               style={{ fontFamily: "'Poppins', sans-serif" }}
               data-testid="text-game-title"
             >
-              JUNGLE RUNNER
+              HEIST RUNNER
             </h1>
-            <p className="text-lg md:text-xl text-white/80 mb-2">Endless Adventure Awaits!</p>
+            <p className="text-lg md:text-xl text-white/80 mb-2">Escape the Police!</p>
             
             <div className="flex items-center gap-2 mb-4">
               <span className="text-white/70">Name:</span>
@@ -968,11 +1180,11 @@ export default function Game() {
             <Button
               size="lg"
               onClick={startGame}
-              className="px-12 py-6 text-xl font-bold rounded-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg shadow-emerald-500/30 transition-all duration-300"
+              className="px-12 py-6 text-xl font-bold rounded-full bg-gradient-to-r from-red-500 to-orange-600 hover:from-red-600 hover:to-orange-700 text-white shadow-lg shadow-red-500/30 transition-all duration-300"
               data-testid="button-play"
             >
               <Play className="w-6 h-6 mr-2" />
-              Play Game
+              Start Heist
             </Button>
             
             <Button
@@ -1017,7 +1229,10 @@ export default function Game() {
                 Use <span className="px-2 py-1 bg-white/20 rounded">DOWN</span> to slide under obstacles
               </p>
               <p className="text-sm mt-1">
-                Grab vines and swing to safety!
+                Grab vines and swing to escape! Release to launch forward!
+              </p>
+              <p className="text-sm mt-2 text-red-400">
+                Stay ahead of the police or get caught!
               </p>
             </div>
           </div>
@@ -1032,7 +1247,7 @@ export default function Game() {
               <Button
                 size="lg"
                 onClick={togglePause}
-                className="px-10 py-5 text-lg font-semibold rounded-full bg-gradient-to-r from-emerald-500 to-green-600"
+                className="px-10 py-5 text-lg font-semibold rounded-full bg-gradient-to-r from-red-500 to-orange-600"
                 data-testid="button-resume"
               >
                 <Play className="w-5 h-5 mr-2" />
@@ -1055,7 +1270,7 @@ export default function Game() {
         {gameState === "gameover" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 rounded-lg">
             <h2 className="text-4xl md:text-5xl font-black text-red-500 mb-4" data-testid="text-game-over">
-              GAME OVER
+              BUSTED!
             </h2>
             <div className="text-5xl font-bold text-white mb-6" data-testid="text-final-score">
               {score.toLocaleString()}
@@ -1067,10 +1282,10 @@ export default function Game() {
               </Card>
               <Card className="p-4 bg-white/10 border-white/20 text-center">
                 <div className="text-2xl font-bold text-yellow-400">{coins}</div>
-                <div className="text-sm text-white/60">Coins</div>
+                <div className="text-sm text-white/60">Loot</div>
               </Card>
               <Card className="p-4 bg-white/10 border-white/20 text-center">
-                <div className="text-2xl font-bold text-emerald-400">{highScore.toLocaleString()}</div>
+                <div className="text-2xl font-bold text-orange-400">{highScore.toLocaleString()}</div>
                 <div className="text-sm text-white/60">Best</div>
               </Card>
             </div>
@@ -1078,11 +1293,11 @@ export default function Game() {
               <Button
                 size="lg"
                 onClick={startGame}
-                className="px-10 py-5 text-lg font-semibold rounded-full bg-gradient-to-r from-emerald-500 to-green-600"
+                className="px-10 py-5 text-lg font-semibold rounded-full bg-gradient-to-r from-red-500 to-orange-600"
                 data-testid="button-play-again"
               >
                 <RotateCcw className="w-5 h-5 mr-2" />
-                Play Again
+                Try Again
               </Button>
             </div>
           </div>
@@ -1093,7 +1308,7 @@ export default function Game() {
             <Button
               size="lg"
               variant="outline"
-              className="w-24 h-24 rounded-full bg-emerald-500/30 border-emerald-400/50 text-white text-lg font-bold active:bg-emerald-500/50"
+              className="w-24 h-24 rounded-full bg-red-500/30 border-red-400/50 text-white text-lg font-bold active:bg-red-500/50"
               onTouchStart={(e) => { e.preventDefault(); gameRef.current.keys.up = true; }}
               onTouchEnd={(e) => { e.preventDefault(); gameRef.current.keys.up = false; }}
               onMouseDown={() => { gameRef.current.keys.up = true; }}
@@ -1106,7 +1321,7 @@ export default function Game() {
             <Button
               size="lg"
               variant="outline"
-              className="w-24 h-24 rounded-full bg-amber-500/30 border-amber-400/50 text-white text-lg font-bold active:bg-amber-500/50"
+              className="w-24 h-24 rounded-full bg-orange-500/30 border-orange-400/50 text-white text-lg font-bold active:bg-orange-500/50"
               onTouchStart={(e) => { e.preventDefault(); gameRef.current.keys.down = true; }}
               onTouchEnd={(e) => { e.preventDefault(); gameRef.current.keys.down = false; }}
               onMouseDown={() => { gameRef.current.keys.down = true; }}
