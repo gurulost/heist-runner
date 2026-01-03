@@ -11,7 +11,7 @@ type GameState = "start" | "playing" | "paused" | "gameover";
 
 interface Obstacle {
   x: number;
-  type: "spike" | "log" | "gap" | "ramp";
+  type: "spike" | "mushroom" | "gap" | "ramp";
   width: number;
   height: number;
   passed: boolean;
@@ -72,8 +72,8 @@ const BASE_GROUND_Y = 350;
 const PLAYER_WIDTH = 40;
 const PLAYER_HEIGHT = 50;
 const SLIDE_HEIGHT = 25;
-const PLAYER_BASE_SPEED = 6;
-const POLICE_SPEED = 5;
+const PLAYER_BASE_SPEED = 7;
+const POLICE_SPEED = 5.8;
 const CANVAS_WIDTH = 960;
 const CANVAS_HEIGHT = 540;
 
@@ -273,7 +273,7 @@ export default function Game() {
 
   const spawnObstacle = useCallback((worldX: number) => {
     const game = gameRef.current;
-    const types: Obstacle["type"][] = ["spike", "log", "gap", "ramp"];
+    const types: Obstacle["type"][] = ["spike", "mushroom", "gap", "ramp"];
     const type = types[Math.floor(Math.random() * types.length)];
 
     let width = 60;
@@ -284,12 +284,12 @@ export default function Game() {
         width = 30;
         height = 40;
         break;
-      case "log":
-        width = 80;
-        height = 35;
+      case "mushroom":
+        width = 40;
+        height = 30;
         break;
       case "gap":
-        width = 120;
+        width = 250;
         height = 300;
         break;
       case "ramp":
@@ -396,31 +396,33 @@ export default function Game() {
 
     const drawBackground = () => {
       const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      gradient.addColorStop(0, "#87CEEB");
-      gradient.addColorStop(0.4, "#E0F0FF");
-      gradient.addColorStop(1, "#B0C4DE");
+      gradient.addColorStop(0, "#064e3b"); // Deep jungle green
+      gradient.addColorStop(0.5, "#065f46");
+      gradient.addColorStop(1, "#059669");
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle = "#708090";
-      for (let i = 0; i < 6; i++) {
-        const x = ((i * 200 - game.cameraX * 0.1) % (canvas.width + 400)) - 200;
-        const height = 80 + (i % 3) * 40;
+      // Distant tree silhouettes
+      ctx.fillStyle = "#022c22";
+      for (let i = 0; i < 8; i++) {
+        const x = ((i * 180 - game.cameraX * 0.15) % (canvas.width + 400)) - 200;
+        const height = 150 + (i % 3) * 60;
+        ctx.fillRect(x, canvas.height - 150 - height, 30, height + 150);
+
         ctx.beginPath();
-        ctx.moveTo(x, canvas.height - 150);
-        ctx.lineTo(x + 60, canvas.height - 150 - height);
-        ctx.lineTo(x + 100, canvas.height - 150 - height + 20);
-        ctx.lineTo(x + 140, canvas.height - 150 - height - 10);
-        ctx.lineTo(x + 200, canvas.height - 150);
+        ctx.moveTo(x - 40, canvas.height - 150 - height + 20);
+        ctx.lineTo(x + 15, canvas.height - 150 - height - 40);
+        ctx.lineTo(x + 70, canvas.height - 150 - height + 20);
         ctx.fill();
       }
 
-      ctx.fillStyle = "#228B22";
-      for (let i = 0; i < 15; i++) {
-        const x = ((i * 100 - game.cameraX * 0.3) % (canvas.width + 200)) - 100;
-        const height = 40 + (i % 4) * 20;
+      // Closer foliage
+      ctx.fillStyle = "#064e3b";
+      for (let i = 0; i < 12; i++) {
+        const x = ((i * 120 - game.cameraX * 0.4) % (canvas.width + 200)) - 100;
+        const height = 60 + (i % 4) * 30;
         ctx.beginPath();
-        ctx.ellipse(x + 50, canvas.height - 100, 35, height / 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(x + 50, canvas.height - 120, 45, height / 2, 0, 0, Math.PI * 2);
         ctx.fill();
       }
     };
@@ -451,6 +453,12 @@ export default function Game() {
       ctx.lineTo(-100, canvas.height);
       ctx.closePath();
       ctx.fill();
+
+      // Grassy top layer
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 10;
+      ctx.lineJoin = "round";
+      ctx.stroke();
 
       ctx.strokeStyle = "#2d8a2d";
       ctx.lineWidth = 4;
@@ -610,8 +618,8 @@ export default function Game() {
       switch (obs.type) {
         case "spike":
           const spikeGradient = ctx.createLinearGradient(screenX, groundY, screenX, groundY - obs.height);
-          spikeGradient.addColorStop(0, "#757575");
-          spikeGradient.addColorStop(1, "#bdbdbd");
+          spikeGradient.addColorStop(0, "#991b1b");
+          spikeGradient.addColorStop(1, "#ef4444"); // Vivid red spikes
           ctx.fillStyle = spikeGradient;
           ctx.beginPath();
           ctx.moveTo(screenX, groundY);
@@ -621,29 +629,34 @@ export default function Game() {
           ctx.fill();
           break;
 
-        case "log":
-          ctx.fillStyle = "#5d4037";
+        case "mushroom":
+          // Draw mushroom stalk
+          ctx.fillStyle = "#f3f4f6";
+          ctx.fillRect(screenX + obs.width / 4, groundY - obs.height / 2, obs.width / 2, obs.height / 2);
+
+          // Draw mushroom cap (red with white dots)
+          ctx.fillStyle = "#ef4444";
           ctx.beginPath();
           ctx.ellipse(screenX + obs.width / 2, groundY - obs.height / 2, obs.width / 2, obs.height / 2, 0, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = "#8d6e63";
-          ctx.beginPath();
-          ctx.ellipse(screenX + obs.width / 2 - 5, groundY - obs.height / 2, obs.width / 2 - 8, obs.height / 2 - 5, 0, 0, Math.PI * 2);
-          ctx.fill();
+
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath(); ctx.arc(screenX + obs.width / 2, groundY - obs.height / 1.5, 4, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(screenX + obs.width / 4, groundY - obs.height / 2, 3, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(screenX + obs.width / 1.4, groundY - obs.height / 2, 3, 0, Math.PI * 2); ctx.fill();
           break;
 
+
+
         case "gap":
-          ctx.fillStyle = "#0a0a0a";
-          ctx.fillRect(screenX, groundY, obs.width, obs.height);
-          ctx.fillStyle = "#3e2723";
-          ctx.fillRect(screenX - 5, groundY, 5, 20);
-          ctx.fillRect(screenX + obs.width, groundY, 5, 20);
+          ctx.fillStyle = "#000000"; // Solid black pits
+          ctx.fillRect(screenX, groundY, obs.width, canvas.height - groundY);
           break;
 
         case "ramp":
           const rampGradient = ctx.createLinearGradient(screenX, groundY, screenX + obs.width, groundY - obs.height);
-          rampGradient.addColorStop(0, "#795548");
-          rampGradient.addColorStop(1, "#a1887f");
+          rampGradient.addColorStop(0, "#065f46");
+          rampGradient.addColorStop(1, "#10b981");
           ctx.fillStyle = rampGradient;
           ctx.beginPath();
           ctx.moveTo(screenX, groundY);
@@ -764,32 +777,18 @@ export default function Game() {
           const spikeBottom = groundY;
           return pRight > spikeLeft && pLeft < spikeRight && pBottom > spikeTop && pTop < spikeBottom;
 
-        case "log":
-          const logCenterX = obs.x + obs.width / 2;
-          const logCenterY = groundY - obs.height / 2;
-          const playerCenterX = player.x + player.width / 2;
-          const playerCenterY = player.y + (player.state === "sliding" ? SLIDE_HEIGHT : player.height) / 2;
-          const dx = playerCenterX - logCenterX;
-          const dy = playerCenterY - logCenterY;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          return distance < (obs.width / 2 + player.width / 3);
-
         case "gap":
           const playerCenterXGap = player.x + player.width / 2;
-          const gapLeft = obs.x + 30;
-          const gapRight = obs.x + obs.width - 30;
+          const gapLeft = obs.x - 10;
+          const gapRight = obs.x + obs.width + 10;
 
           if (playerCenterXGap > gapLeft && playerCenterXGap < gapRight) {
-            const leftEdgeGround = getTerrainHeight(obs.x - 10);
-            const rightEdgeGround = getTerrainHeight(obs.x + obs.width + 10);
-            const lowestEdge = Math.max(leftEdgeGround, rightEdgeGround);
-
-            if (pBottom >= lowestEdge + 150) {
-              return true;
-            }
+            // Let the player fall. Death is handled in the update loop when y > screen height
+            return false;
           }
           return false;
 
+        case "mushroom":
         case "ramp":
           return false;
       }
@@ -800,8 +799,19 @@ export default function Game() {
       const p = game.player;
       game.frameCount++;
 
-      if (game.frameCount % 60 === 0 && game.police.speed < p.vx + 2) {
-        game.police.speed += 0.02;
+      // Variables speed based on terrain slope
+      const groundYAhead = getTerrainHeight(p.x + p.width / 2 + 20);
+      const groundYBehind = getTerrainHeight(p.x + p.width / 2 - 20);
+      const slope = (groundYAhead - groundYBehind) / 40;
+
+      if (slope > 0.1) { // Upward slope
+        p.vx = Math.max(4, p.vx - 0.05);
+      } else if (slope < -0.1) { // Downward slope
+        p.vx = Math.min(12, p.vx + 0.05);
+      } else {
+        // Gradually return to base speed
+        if (p.vx > PLAYER_BASE_SPEED) p.vx -= 0.01;
+        if (p.vx < PLAYER_BASE_SPEED) p.vx += 0.01;
       }
 
       game.distanceTraveled += p.vx * 0.1;
@@ -812,18 +822,23 @@ export default function Game() {
       game.police.x += game.police.speed;
 
       const policeDistance = p.x - game.police.x;
-      if (policeDistance < 150) {
-        setPoliceWarning(Math.min(100, (150 - policeDistance) / 150 * 100));
-        // Play siren sound every 60 frames when police is close
-        if (game.frameCount % 60 === 0) {
+      if (policeDistance < 400) {
+        setPoliceWarning(Math.min(100, (400 - policeDistance) / 400 * 100));
+        // Play siren sound with volume/rate based on distance
+        if (game.frameCount % Math.max(10, Math.floor(policeDistance / 10)) === 0) {
           soundRef.current.playSiren();
         }
       } else {
         setPoliceWarning(0);
       }
 
-      if (game.police.x + 80 >= p.x) {
-        createParticles(p.x, p.y + p.height / 2, "#ef4444", 15);
+      if (game.police.x + 40 >= p.x) { // Police caught the player
+        createParticles(p.x, p.y + p.height / 2, "#ef4444", 20);
+        gameOver();
+        return;
+      }
+
+      if (p.y > CANVAS_HEIGHT) { // Player fell off the screen (in a gap)
         gameOver();
         return;
       }
@@ -833,7 +848,7 @@ export default function Game() {
 
         const gravity = 0.002;
         vine.angularVelocity += -gravity * Math.sin(vine.angle);
-        vine.angularVelocity *= 0.998;
+        vine.angularVelocity *= 0.98; // Increased damping to reduce extreme swinging
         vine.angle += vine.angularVelocity;
 
         const vineScreenX = vine.x;
@@ -842,14 +857,14 @@ export default function Game() {
 
         game.vineSwingTime = (game.vineSwingTime || 0) + 1;
 
-        if (!game.keys.up && game.vineSwingTime > 10) {
+        if (!game.keys.up && game.vineSwingTime > 15) {
           const releaseSpeed = vine.angularVelocity * vine.length;
 
-          const forwardBoost = Math.max(0, Math.cos(vine.angle)) * Math.abs(releaseSpeed) * 2;
-          p.vx = PLAYER_BASE_SPEED + forwardBoost + 4;
-          p.vy = -Math.abs(Math.sin(vine.angle) * releaseSpeed) * 1.5 - 8;
+          const forwardBoost = Math.max(0, Math.cos(vine.angle)) * Math.abs(releaseSpeed) * 1.5;
+          p.vx = PLAYER_BASE_SPEED + forwardBoost;
+          p.vy = -Math.abs(Math.sin(vine.angle) * releaseSpeed) * 1.2 - 6;
 
-          p.vx = Math.max(PLAYER_BASE_SPEED + 2, Math.min(p.vx, PLAYER_BASE_SPEED * 4));
+          p.vx = Math.max(PLAYER_BASE_SPEED + 1, Math.min(p.vx, PLAYER_BASE_SPEED * 3));
 
           p.state = "jumping";
           p.onVine = null;
@@ -890,6 +905,20 @@ export default function Game() {
         let overGap = false;
 
         game.obstacles.forEach(obs => {
+          if (obs.type === "mushroom") {
+            const obsGroundY = getTerrainHeight(obs.x + obs.width / 2);
+            const dx = (p.x + p.width / 2) - (obs.x + obs.width / 2);
+            const dy = (p.y + p.height) - obsGroundY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < 40 && p.vy >= 0) {
+              p.vy = -20; // High bounce
+              p.vx += 2;  // Speed boost
+              p.state = "jumping";
+              createParticles(obs.x + obs.width / 2, obsGroundY, "#ff4081", 12);
+              soundRef.current.playJump();
+            }
+          }
           if (obs.type === "ramp") {
             const obsGroundY = getTerrainHeight(obs.x + obs.width / 2);
             const rampProgress = (p.x + p.width / 2 - obs.x) / obs.width;
@@ -1002,15 +1031,15 @@ export default function Game() {
 
       const spawnX = game.cameraX + CANVAS_WIDTH + 200;
 
-      if (spawnX - game.lastObstacleX > 300 + Math.random() * 200) {
+      if (spawnX - game.lastObstacleX > 600 + Math.random() * 600) {
         spawnObstacle(spawnX);
       }
 
-      if (spawnX - game.lastVineX > 500 + Math.random() * 300) {
+      if (spawnX - game.lastVineX > 1000 + Math.random() * 1000) {
         spawnVine(spawnX);
       }
 
-      if (spawnX - game.lastCoinX > 100 + Math.random() * 100) {
+      if (spawnX - game.lastCoinX > 400 + Math.random() * 400) {
         const groundY = getTerrainHeight(spawnX);
         spawnCoin(spawnX, groundY);
       }
@@ -1326,11 +1355,11 @@ export default function Game() {
         )}
 
         {gameState === "playing" && (
-          <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-8 pointer-events-auto md:hidden">
+          <div className="absolute inset-0 pointer-events-none md:hidden">
             <Button
               size="lg"
               variant="outline"
-              className="w-24 h-24 rounded-full bg-red-500/30 border-red-400/50 text-white text-lg font-bold active:bg-red-500/50"
+              className="absolute bottom-6 right-6 w-20 h-20 rounded-full bg-red-500/20 border-red-400/40 text-white text-base font-bold active:bg-red-500/40 pointer-events-auto backdrop-blur-sm"
               onTouchStart={(e) => { e.preventDefault(); gameRef.current.keys.up = true; }}
               onTouchEnd={(e) => { e.preventDefault(); gameRef.current.keys.up = false; }}
               onTouchCancel={(e) => { e.preventDefault(); gameRef.current.keys.up = false; }}
@@ -1344,7 +1373,7 @@ export default function Game() {
             <Button
               size="lg"
               variant="outline"
-              className="w-24 h-24 rounded-full bg-orange-500/30 border-orange-400/50 text-white text-lg font-bold active:bg-orange-500/50"
+              className="absolute bottom-6 left-6 w-20 h-20 rounded-full bg-orange-500/20 border-orange-400/40 text-white text-base font-bold active:bg-orange-500/40 pointer-events-auto backdrop-blur-sm"
               onTouchStart={(e) => { e.preventDefault(); gameRef.current.keys.down = true; }}
               onTouchEnd={(e) => { e.preventDefault(); gameRef.current.keys.down = false; }}
               onTouchCancel={(e) => { e.preventDefault(); gameRef.current.keys.down = false; }}
