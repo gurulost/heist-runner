@@ -72,8 +72,8 @@ const BASE_GROUND_Y = 350;
 const PLAYER_WIDTH = 40;
 const PLAYER_HEIGHT = 50;
 const SLIDE_HEIGHT = 25;
-const PLAYER_BASE_SPEED = 7;
-const POLICE_SPEED = 5.8;
+const PLAYER_BASE_SPEED = 6;
+const POLICE_SPEED = 6.8;
 const CANVAS_WIDTH = 960;
 const CANVAS_HEIGHT = 540;
 
@@ -289,7 +289,7 @@ export default function Game() {
         height = 30;
         break;
       case "gap":
-        width = 250;
+        width = 600 + Math.random() * 400; // Ginormous pits
         height = 300;
         break;
       case "ramp":
@@ -395,34 +395,75 @@ export default function Game() {
     const game = gameRef.current;
 
     const drawBackground = () => {
-      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      gradient.addColorStop(0, "#064e3b"); // Deep jungle green
-      gradient.addColorStop(0.5, "#065f46");
-      gradient.addColorStop(1, "#059669");
-      ctx.fillStyle = gradient;
+      // Deep Jungle Sky Gradient
+      const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      skyGradient.addColorStop(0, "#022c22"); // Ultra deep teal
+      skyGradient.addColorStop(0.4, "#064e3b");
+      skyGradient.addColorStop(1, "#065f46");
+      ctx.fillStyle = skyGradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Distant tree silhouettes
-      ctx.fillStyle = "#022c22";
-      for (let i = 0; i < 8; i++) {
-        const x = ((i * 180 - game.cameraX * 0.15) % (canvas.width + 400)) - 200;
-        const height = 150 + (i % 3) * 60;
-        ctx.fillRect(x, canvas.height - 150 - height, 30, height + 150);
+      // Atmospheric Fog / Horizon Depth
+      const fogGradient = ctx.createLinearGradient(0, canvas.height * 0.4, 0, canvas.height);
+      fogGradient.addColorStop(0, "rgba(5, 150, 105, 0)");
+      fogGradient.addColorStop(1, "rgba(20, 184, 166, 0.2)");
+      ctx.fillStyle = fogGradient;
+      ctx.fillRect(0, canvas.height * 0.4, canvas.width, canvas.height * 0.6);
+
+      // 1. Distant Parallax Layer: Far Silhouettes
+      ctx.fillStyle = "#011c15";
+      for (let i = 0; i < 6; i++) {
+        const x = ((i * 300 - game.cameraX * 0.05) % (canvas.width + 600)) - 300;
+        const height = 200 + (i % 3) * 80;
+        ctx.fillRect(x, canvas.height - height - 100, 40, height + 100);
 
         ctx.beginPath();
-        ctx.moveTo(x - 40, canvas.height - 150 - height + 20);
-        ctx.lineTo(x + 15, canvas.height - 150 - height - 40);
-        ctx.lineTo(x + 70, canvas.height - 150 - height + 20);
+        ctx.moveTo(x - 60, canvas.height - height - 80);
+        ctx.lineTo(x + 20, canvas.height - height - 150);
+        ctx.lineTo(x + 100, canvas.height - height - 80);
         ctx.fill();
       }
 
-      // Closer foliage
-      ctx.fillStyle = "#064e3b";
-      for (let i = 0; i < 12; i++) {
-        const x = ((i * 120 - game.cameraX * 0.4) % (canvas.width + 200)) - 100;
-        const height = 60 + (i % 4) * 30;
+      // 2. God Rays (Light Rays)
+      ctx.save();
+      ctx.globalCompositeOperation = "screen";
+      const rayGradient = ctx.createLinearGradient(0, 0, 200, 400);
+      rayGradient.addColorStop(0, "rgba(255, 255, 200, 0.15)");
+      rayGradient.addColorStop(1, "rgba(255, 255, 200, 0)");
+      ctx.fillStyle = rayGradient;
+      for (let i = 0; i < 5; i++) {
         ctx.beginPath();
-        ctx.ellipse(x + 50, canvas.height - 120, 45, height / 2, 0, 0, Math.PI * 2);
+        const startX = (i * 250 - (game.cameraX * 0.1) % 400) + 100;
+        ctx.moveTo(startX, 0);
+        ctx.lineTo(startX + 150, 0);
+        ctx.lineTo(startX - 200, 600);
+        ctx.lineTo(startX - 350, 600);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // 3. Middle Parallax Layer: Thicker Trees
+      ctx.fillStyle = "#022c22";
+      for (let i = 0; i < 8; i++) {
+        const x = ((i * 220 - game.cameraX * 0.2) % (canvas.width + 400)) - 200;
+        const height = 150 + (i % 4) * 50;
+        // Tree Trunk
+        ctx.fillRect(x, canvas.height - height - 150, 50, height + 150);
+        // Foliage "clumps"
+        ctx.beginPath();
+        ctx.arc(x + 25, canvas.height - height - 150, 60, 0, Math.PI * 2);
+        ctx.arc(x - 10, canvas.height - height - 120, 45, 0, Math.PI * 2);
+        ctx.arc(x + 60, canvas.height - height - 120, 45, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 4. Close Foliage (Foreground Blur)
+      ctx.fillStyle = "#01211b";
+      for (let i = 0; i < 10; i++) {
+        const x = ((i * 150 - game.cameraX * 0.4) % (canvas.width + 300)) - 150;
+        const height = 80 + (i % 3) * 40;
+        ctx.beginPath();
+        ctx.ellipse(x + 75, canvas.height - 100, 60, height / 2, 0, 0, Math.PI * 2);
         ctx.fill();
       }
     };
@@ -431,50 +472,57 @@ export default function Game() {
       const visibleStart = game.cameraX - 100;
       const visibleEnd = game.cameraX + canvas.width + 100;
 
-      ctx.fillStyle = "#3d2817";
+      // Deep soil/roots layer
+      ctx.fillStyle = "#2d1b0d";
       ctx.beginPath();
-
       let started = false;
       for (const segment of game.terrain) {
         if (segment.endX < visibleStart) continue;
         if (segment.startX > visibleEnd) break;
-
         const screenStartX = segment.startX - game.cameraX;
         const screenEndX = segment.endX - game.cameraX;
-
-        if (!started) {
-          ctx.moveTo(screenStartX, segment.startY);
-          started = true;
-        }
-        ctx.lineTo(screenEndX, segment.endY);
+        if (!started) { ctx.moveTo(screenStartX, segment.startY + 40); started = true; }
+        ctx.lineTo(screenEndX, segment.endY + 40);
       }
-
       ctx.lineTo(canvas.width + 100, canvas.height);
       ctx.lineTo(-100, canvas.height);
-      ctx.closePath();
       ctx.fill();
 
-      // Grassy top layer
-      ctx.strokeStyle = "#10b981";
-      ctx.lineWidth = 10;
-      ctx.lineJoin = "round";
-      ctx.stroke();
-
-      ctx.strokeStyle = "#2d8a2d";
-      ctx.lineWidth = 4;
+      // Stone/Earth layer
+      const stoneGradient = ctx.createLinearGradient(0, BASE_GROUND_Y, 0, canvas.height);
+      stoneGradient.addColorStop(0, "#4a3728");
+      stoneGradient.addColorStop(1, "#2d1b0d");
+      ctx.fillStyle = stoneGradient;
       ctx.beginPath();
       started = false;
       for (const segment of game.terrain) {
         if (segment.endX < visibleStart) continue;
         if (segment.startX > visibleEnd) break;
-
         const screenStartX = segment.startX - game.cameraX;
         const screenEndX = segment.endX - game.cameraX;
+        if (!started) { ctx.moveTo(screenStartX, segment.startY); started = true; }
+        ctx.lineTo(screenEndX, segment.endY);
+      }
+      ctx.lineTo(canvas.width + 100, canvas.height);
+      ctx.lineTo(-100, canvas.height);
+      ctx.fill();
 
-        if (!started) {
-          ctx.moveTo(screenStartX, segment.startY);
-          started = true;
-        }
+      // Mossy Top Layer (3D edge effect)
+      ctx.strokeStyle = "#064e3b";
+      ctx.lineWidth = 14;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      started = false;
+      for (const segment of game.terrain) {
+        if (segment.endX < visibleStart) continue;
+        if (segment.startX > visibleEnd) break;
+        const screenStartX = segment.startX - game.cameraX;
+        const screenEndX = segment.endX - game.cameraX;
+        if (!started) { ctx.moveTo(screenStartX, segment.startY); started = true; }
         ctx.lineTo(screenEndX, segment.endY);
       }
       ctx.stroke();
@@ -484,7 +532,27 @@ export default function Game() {
       const p = game.player;
       const screenX = p.x - game.cameraX;
 
-      ctx.save();
+      // Character Shadow
+      const groundY = getTerrainHeight(p.x + p.width / 2);
+      if (p.y + p.height < groundY + 10) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+        ctx.beginPath();
+        ctx.ellipse(screenX + p.width / 2, groundY, p.width / 1.5, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Speed Lines (Visual feedback for boost)
+      if (p.vx > PLAYER_BASE_SPEED + 3) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 3; i++) {
+          const sy = p.y + 10 + i * 20;
+          ctx.beginPath();
+          ctx.moveTo(screenX - 20 - Math.random() * 20, sy);
+          ctx.lineTo(screenX - 5, sy);
+          ctx.stroke();
+        }
+      }
 
       if (p.invincible > 0 && Math.floor(game.frameCount / 5) % 2 === 0) {
         ctx.globalAlpha = 0.5;
@@ -576,36 +644,50 @@ export default function Game() {
       const police = game.police;
       const screenX = police.x - game.cameraX;
 
-      if (screenX > -100) {
-        ctx.fillStyle = "#1a1a1a";
-        ctx.fillRect(screenX, BASE_GROUND_Y - 40, 80, 30);
+      if (screenX > -200) {
+        ctx.save();
+        const pGroundY = getTerrainHeight(police.x + 50);
+        ctx.translate(0, pGroundY - BASE_GROUND_Y);
 
-        ctx.fillStyle = "#2563eb";
-        ctx.fillRect(screenX + 10, BASE_GROUND_Y - 55, 60, 15);
+        // Body (Realistic black sedan)
+        ctx.fillStyle = "#0c0a09"; // Stone-950
+        ctx.fillRect(screenX, BASE_GROUND_Y - 45, 100, 35);
+        ctx.fillStyle = "#1c1917"; // Stone-900 hood/roof
+        ctx.fillRect(screenX + 15, BASE_GROUND_Y - 65, 60, 20);
 
-        const lightOn = Math.floor(game.frameCount / 10) % 2 === 0;
+        // Windows (Reflective)
+        const windsheildGradient = ctx.createLinearGradient(screenX + 20, BASE_GROUND_Y - 60, screenX + 70, BASE_GROUND_Y - 50);
+        windsheildGradient.addColorStop(0, "#44403c");
+        windsheildGradient.addColorStop(0.5, "#78716c");
+        windsheildGradient.addColorStop(1, "#44403c");
+        ctx.fillStyle = windsheildGradient;
+        ctx.fillRect(screenX + 20, BASE_GROUND_Y - 60, 25, 12);
+        ctx.fillRect(screenX + 50, BASE_GROUND_Y - 60, 20, 12);
+
+        // Emergency Lights (Glow)
+        const lightOn = Math.floor(game.frameCount / 5) % 2 === 0;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = lightOn ? "#ef4444" : "#3b82f6";
         ctx.fillStyle = lightOn ? "#ef4444" : "#3b82f6";
-        ctx.beginPath();
-        ctx.arc(screenX + 25, BASE_GROUND_Y - 60, 6, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(screenX + 35, BASE_GROUND_Y - 70, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowColor = lightOn ? "#3b82f6" : "#ef4444";
         ctx.fillStyle = lightOn ? "#3b82f6" : "#ef4444";
-        ctx.beginPath();
-        ctx.arc(screenX + 55, BASE_GROUND_Y - 60, 6, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(screenX + 55, BASE_GROUND_Y - 70, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
 
-        ctx.fillStyle = "#1a1a1a";
-        ctx.beginPath();
-        ctx.arc(screenX + 15, BASE_GROUND_Y - 5, 10, 0, Math.PI * 2);
-        ctx.arc(screenX + 65, BASE_GROUND_Y - 5, 10, 0, Math.PI * 2);
-        ctx.fill();
+        // Wheels
+        ctx.fillStyle = "#000000";
+        ctx.beginPath(); ctx.arc(screenX + 20, BASE_GROUND_Y - 10, 12, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(screenX + 80, BASE_GROUND_Y - 10, 12, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#44403c";
+        ctx.beginPath(); ctx.arc(screenX + 20, BASE_GROUND_Y - 10, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(screenX + 80, BASE_GROUND_Y - 10, 5, 0, Math.PI * 2); ctx.fill();
 
-        ctx.fillStyle = "#87CEEB";
-        ctx.fillRect(screenX + 15, BASE_GROUND_Y - 50, 20, 12);
-        ctx.fillRect(screenX + 45, BASE_GROUND_Y - 50, 20, 12);
-
+        // Markings
         ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 10px sans-serif";
-        ctx.fillText("POLICE", screenX + 40, BASE_GROUND_Y - 25);
+        ctx.font = "bold 12px sans-serif";
+        ctx.fillText("POLICE", screenX + 50, BASE_GROUND_Y - 30);
+        ctx.restore();
       }
     };
 
@@ -618,39 +700,62 @@ export default function Game() {
       switch (obs.type) {
         case "spike":
           const spikeGradient = ctx.createLinearGradient(screenX, groundY, screenX, groundY - obs.height);
-          spikeGradient.addColorStop(0, "#991b1b");
-          spikeGradient.addColorStop(1, "#ef4444"); // Vivid red spikes
+          spikeGradient.addColorStop(0, "#44403c"); // Dark steel
+          spikeGradient.addColorStop(0.5, "#a8a29e"); // Highlight
+          spikeGradient.addColorStop(1, "#44403c");
           ctx.fillStyle = spikeGradient;
           ctx.beginPath();
           ctx.moveTo(screenX, groundY);
           ctx.lineTo(screenX + obs.width / 2, groundY - obs.height);
           ctx.lineTo(screenX + obs.width, groundY);
-          ctx.closePath();
           ctx.fill();
+          // Sharp edge highlight
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1;
+          ctx.stroke();
           break;
 
         case "mushroom":
-          // Draw mushroom stalk
-          ctx.fillStyle = "#f3f4f6";
-          ctx.fillRect(screenX + obs.width / 4, groundY - obs.height / 2, obs.width / 2, obs.height / 2);
+          // Stalk with texture
+          ctx.fillStyle = "#f5f5f4";
+          ctx.fillRect(screenX + obs.width / 3, groundY - obs.height / 2, obs.width / 3, obs.height / 2);
 
-          // Draw mushroom cap (red with white dots)
-          ctx.fillStyle = "#ef4444";
+          // Organic Cap Gradient
+          const capGradient = ctx.createRadialGradient(screenX + obs.width / 2, groundY - obs.height / 2, 0, screenX + obs.width / 2, groundY - obs.height / 2, obs.width / 2);
+          capGradient.addColorStop(0, "#ef4444");
+          capGradient.addColorStop(0.8, "#991b1b");
+          capGradient.addColorStop(1, "#450a0a");
+          ctx.fillStyle = capGradient;
           ctx.beginPath();
           ctx.ellipse(screenX + obs.width / 2, groundY - obs.height / 2, obs.width / 2, obs.height / 2, 0, 0, Math.PI * 2);
           ctx.fill();
 
+          // Bioluminescent glow spots
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = "#ffffff";
           ctx.fillStyle = "#ffffff";
-          ctx.beginPath(); ctx.arc(screenX + obs.width / 2, groundY - obs.height / 1.5, 4, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(screenX + obs.width / 4, groundY - obs.height / 2, 3, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(screenX + obs.width / 1.4, groundY - obs.height / 2, 3, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(screenX + obs.width / 2, groundY - obs.height / 1.5, 5, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(screenX + obs.width / 4, groundY - obs.height / 2, 4, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(screenX + obs.width / 1.4, groundY - obs.height / 2, 4, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowBlur = 0;
           break;
 
 
 
         case "gap":
-          ctx.fillStyle = "#000000"; // Solid black pits
+          // Deep Abyss Gradient
+          const pitGradient = ctx.createLinearGradient(screenX, groundY, screenX, canvas.height);
+          pitGradient.addColorStop(0, "#000000");
+          pitGradient.addColorStop(1, "#020617");
+          ctx.fillStyle = pitGradient;
           ctx.fillRect(screenX, groundY, obs.width, canvas.height - groundY);
+
+          // Atmospheric Mist in the pit
+          const mistGradient = ctx.createLinearGradient(screenX, groundY + 50, screenX, canvas.height);
+          mistGradient.addColorStop(0, "rgba(5, 150, 105, 0)");
+          mistGradient.addColorStop(1, "rgba(5, 150, 105, 0.2)");
+          ctx.fillStyle = mistGradient;
+          ctx.fillRect(screenX, groundY + 50, obs.width, canvas.height - groundY - 50);
           break;
 
         case "ramp":
@@ -807,7 +912,10 @@ export default function Game() {
       if (slope > 0.1) { // Upward slope
         p.vx = Math.max(4, p.vx - 0.05);
       } else if (slope < -0.1) { // Downward slope
-        p.vx = Math.min(12, p.vx + 0.05);
+        p.vx = Math.min(15, p.vx + (p.state === "sliding" ? 0.15 : 0.05)); // Extra boost when sliding
+        if (p.state === "sliding") {
+          createParticles(p.x, p.y + p.height, "#ffffff", 1); // Dust/smoke trail
+        }
       } else {
         // Gradually return to base speed
         if (p.vx > PLAYER_BASE_SPEED) p.vx -= 0.01;
@@ -1031,13 +1139,23 @@ export default function Game() {
 
       const spawnX = game.cameraX + CANVAS_WIDTH + 200;
 
-      if (spawnX - game.lastObstacleX > 600 + Math.random() * 600) {
+      if (spawnX - game.lastObstacleX > 800 + Math.random() * 800) {
         spawnObstacle(spawnX);
       }
 
-      if (spawnX - game.lastVineX > 1000 + Math.random() * 1000) {
+      if (spawnX - game.lastVineX > 1200 + Math.random() * 1200) {
         spawnVine(spawnX);
       }
+
+      // Ensure vines spawn over huge gaps
+      game.obstacles.forEach(obs => {
+        if (obs.type === "gap" && obs.width > 500) {
+          const vineX = obs.x + obs.width / 2;
+          if (Math.abs(vineX - game.lastVineX) > 200) {
+            spawnVine(vineX);
+          }
+        }
+      });
 
       if (spawnX - game.lastCoinX > 400 + Math.random() * 400) {
         const groundY = getTerrainHeight(spawnX);
@@ -1066,10 +1184,59 @@ export default function Game() {
       }
     };
 
+    const drawRadar = () => {
+      ctx.save();
+      const centerX = 80;
+      const centerY = 80;
+      const radius = 60;
+
+      // Glassmorphic Circle
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Radar rings
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(centerX, centerY, radius * 0.6, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(centerX, centerY, radius * 0.3, 0, Math.PI * 2); ctx.stroke();
+
+      // Player blip (Fixed in center)
+      ctx.fillStyle = "#10b981";
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = "#10b981";
+      ctx.beginPath(); ctx.arc(centerX, centerY, 5, 0, Math.PI * 2); ctx.fill();
+
+      // Police blip (Relative position)
+      const policeDistance = game.player.x - game.police.x;
+      const radarDistance = Math.min(policeDistance / 1000, 1) * radius;
+      // Interpolate position (drawn on the left side of the radar)
+      const blipX = centerX - radarDistance;
+
+      ctx.shadowColor = "#ef4444";
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath(); ctx.arc(blipX, centerY, 6, 0, Math.PI * 2); ctx.fill();
+
+      // Warning Pulse if close
+      if (policeDistance < 300) {
+        const pulse = (Math.sin(game.frameCount * 0.2) + 1) / 2;
+        ctx.strokeStyle = `rgba(239, 68, 68, ${pulse * 0.5})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(blipX, centerY, 6 + pulse * 10, 0, Math.PI * 2); ctx.stroke();
+      }
+
+      ctx.restore();
+    };
+
     const render = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       drawBackground();
+      drawRadar();
 
       game.vines.forEach(drawVine);
 
