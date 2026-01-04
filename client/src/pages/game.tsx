@@ -105,6 +105,7 @@ export default function Game() {
     return localStorage.getItem("playerName") || "Player";
   });
   const [policeWarning, setPoliceWarning] = useState(0);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   // Sound effects
   const { playJump, playCoin, playGameOver, playSiren, playVineGrab, playVineRelease } = useSound({ enabled: soundEnabled });
@@ -266,7 +267,7 @@ export default function Game() {
     game.lastCoinX = 0;
     game.vineSwingTime = 0;
     game.vineGrabCooldown = 0;
-    game.plane = { x: -200, y: 100, vx: 0, state: "hidden", rotorAngle: 0 } as Helicopter;
+    game.plane = { x: -200, y: 100, vx: 0, state: "hidden", rotorAngle: 0 } as Plane;
     game.checkPointReached = false;
     game.checkPointUsed = false;
 
@@ -287,6 +288,20 @@ export default function Game() {
 
   const togglePause = useCallback(() => {
     setGameState(prev => prev === "playing" ? "paused" : "playing");
+  }, []);
+
+  const createParticles = useCallback((x: number, y: number, color: string, count: number) => {
+    const game = gameRef.current;
+    for (let i = 0; i < count; i++) {
+      game.particles.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 8,
+        vy: (Math.random() - 0.5) * 8 - 2,
+        life: 1,
+        color,
+      });
+    }
   }, []);
 
   const gameOver = useCallback(() => {
@@ -419,10 +434,6 @@ export default function Game() {
         width = 40; // Thicker wall
         height = CANVAS_HEIGHT; // Full height (visual only, effective height handled in collision)
         break;
-      case "mushroom":
-        width = 40;
-        height = 30;
-        break;
       case "gap":
         // Regular Jumpable Gap - SMALLER as requested
         width = 100 + Math.random() * 150; // Was 200+
@@ -477,20 +488,6 @@ export default function Game() {
       rotation: 0,
     });
     game.lastCoinX = worldX;
-  }, []);
-
-  const createParticles = useCallback((x: number, y: number, color: string, count: number) => {
-    const game = gameRef.current;
-    for (let i = 0; i < count; i++) {
-      game.particles.push({
-        x,
-        y,
-        vx: (Math.random() - 0.5) * 8,
-        vy: (Math.random() - 0.5) * 8 - 2,
-        life: 1,
-        color,
-      });
-    }
   }, []);
 
   useEffect(() => {
@@ -1700,7 +1697,7 @@ export default function Game() {
       game.obstacles.forEach((o: Obstacle) => drawObstacle(o));
       game.coinsList.forEach((c: Coin) => drawCoin(c));
 
-      // Helicopter Visuals
+      // Helicopter Visuals (only draw when not hidden)
       if (game.plane.state !== "hidden") {
         const helX = game.plane.x;
         const helY = game.plane.y;
