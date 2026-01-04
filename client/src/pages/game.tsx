@@ -63,6 +63,7 @@ interface Player {
   state: "running" | "jumping" | "sliding" | "swinging" | "falling";
   animFrame: number;
   onVine: Vine | null;
+  vineLength: number;
   invincible: number;
 }
 
@@ -77,6 +78,13 @@ const POLICE_SPEED = 6.8;
 const CANVAS_WIDTH = 960;
 const CANVAS_HEIGHT = 540;
 const THE_ABYSS = 2000; // Physics height inside pits (non-grounding)
+const GAP_FLATTEN_RANGE = 120;
+const VINE_WALL_BUFFER = 220;
+const VINE_SPIKE_BUFFER = 260;
+const VINE_GRAB_RADIUS = 55;
+const GLIDE_CHARGE_DISTANCE = 500;
+const GLIDE_CHARGE_SECONDS = 0.5;
+const GLIDE_MAX_DISPLAY_SECONDS = 3;
 const VICTORY_DISTANCE = 40000;
 const CHECKPOINT_DISTANCE = 20000;
 
@@ -106,6 +114,8 @@ export default function Game() {
   });
   const [policeWarning, setPoliceWarning] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [glideSeconds, setGlideSeconds] = useState(0);
+  const [glideChargeProgress, setGlideChargeProgress] = useState(0);
 
   // Sound effects
   const { playJump, playCoin, playGameOver, playSiren, playVineGrab, playVineRelease } = useSound({ enabled: soundEnabled });
@@ -138,6 +148,7 @@ export default function Game() {
       state: "running" as Player["state"],
       animFrame: 0,
       onVine: null as Vine | null,
+      vineLength: 0,
       invincible: 0,
     },
     police: {
@@ -159,6 +170,8 @@ export default function Game() {
     lastDisplayedDistance: 0,
     lastDisplayedCoins: 0,
     lastDisplayedWarning: 0,
+    lastDisplayedGlideSeconds: 0,
+    lastDisplayedGlideProgress: 0,
     worldX: 0,
     nextTerrainX: 0,
     lastObstacleX: 0,
@@ -166,6 +179,9 @@ export default function Game() {
     lastCoinX: 0,
     vineSwingTime: 0,
     vineGrabCooldown: 0,
+    glideSeconds: 0,
+    glideChargeProgress: 0,
+    nextGlideChargeDistance: GLIDE_CHARGE_DISTANCE,
     rain: Array.from({ length: 100 }, () => ({
       x: Math.random() * CANVAS_WIDTH,
       y: Math.random() * CANVAS_HEIGHT,
@@ -179,6 +195,7 @@ export default function Game() {
       o: Math.random() * Math.PI * 2,
     })),
     shake: 0,
+    cameraZoom: 1,
     plane: { // Renamed to Helicopter conceptually
       x: CANVAS_WIDTH + 200,
       y: 100,
@@ -192,18 +209,40 @@ export default function Game() {
 
   const getTerrainHeight = useCallback((worldX: number, visuals: boolean = false): number => {
     const game = gameRef.current;
+    const gaps = game.obstacles.filter(o => o.type === "gap");
 
     // Force pits to be lethal (physics sees abyss, visuals see terrain)
-    const inGap = game.obstacles.some(o => o.type === "gap" && worldX >= o.x && worldX <= o.x + o.width);
+    const inGap = gaps.some(o => worldX >= o.x && worldX <= o.x + o.width);
     if (inGap && !visuals) return THE_ABYSS;
 
+    let terrainY = BASE_GROUND_Y;
     for (const segment of game.terrain) {
       if (worldX >= segment.startX && worldX < segment.endX) {
         const t = (worldX - segment.startX) / (segment.endX - segment.startX);
-        return segment.startY + (segment.endY - segment.startY) * t;
+        terrainY = segment.startY + (segment.endY - segment.startY) * t;
+        break;
       }
     }
-    return BASE_GROUND_Y;
+
+    if (gaps.length > 0) {
+      let blend = 0;
+      for (const gap of gaps) {
+        const leftStart = gap.x - GAP_FLATTEN_RANGE;
+        const rightEnd = gap.x + gap.width + GAP_FLATTEN_RANGE;
+        if (worldX >= leftStart && worldX < gap.x) {
+          const t = (worldX - leftStart) / GAP_FLATTEN_RANGE;
+          blend = Math.max(blend, t);
+        } else if (worldX > gap.x + gap.width && worldX <= rightEnd) {
+          const t = (rightEnd - worldX) / GAP_FLATTEN_RANGE;
+          blend = Math.max(blend, t);
+        }
+      }
+      if (blend > 0) {
+        terrainY = terrainY * (1 - blend) + BASE_GROUND_Y * blend;
+      }
+    }
+
+    return terrainY;
   }, []);
 
   const generateTerrain = useCallback((startX: number, count: number) => {
@@ -244,6 +283,7 @@ export default function Game() {
       state: "running",
       animFrame: 0,
       onVine: null,
+      vineLength: 0,
       invincible: 0,
     };
     game.police = {
@@ -267,6 +307,10 @@ export default function Game() {
     game.lastCoinX = 0;
     game.vineSwingTime = 0;
     game.vineGrabCooldown = 0;
+    game.glideSeconds = 0;
+    game.glideChargeProgress = 0;
+    game.nextGlideChargeDistance = GLIDE_CHARGE_DISTANCE;
+    game.cameraZoom = 1;
     game.plane = { x: -200, y: 100, vx: 0, state: "hidden", rotorAngle: 0 } as Plane;
     game.checkPointReached = false;
     game.checkPointUsed = false;
@@ -279,6 +323,8 @@ export default function Game() {
     setPoliceWarning(0);
     setCheckpointActive(false);
     setCheckpointUsed(false);
+    setGlideSeconds(0);
+    setGlideChargeProgress(0);
   }, [generateTerrain]);
 
   const startGame = useCallback(() => {
@@ -353,26 +399,26 @@ export default function Game() {
     soundRef.current.playGameOver();
   }, [playerName, submitScoreMutation, createParticles]); // Added createParticles to dependencies
 
-  const spawnVine = useCallback((worldX: number, options: { force?: boolean } = {}) => {
+  const spawnVine = useCallback((worldX: number, options: { force?: boolean; length?: number; angle?: number; anchorY?: number } = {}) => {
     const game = gameRef.current;
-    const { force = false } = options;
+    const { force = false, length, angle, anchorY } = options;
 
     if (!force) {
       const inGap = game.obstacles.some(o => o.type === "gap" && worldX >= o.x && worldX <= o.x + o.width);
       if (inGap) return;
 
-      const nearWall = game.obstacles.some(o => o.type === "low_beam" && worldX >= o.x - 220 && worldX <= o.x + o.width + 220);
+      const nearWall = game.obstacles.some(o => o.type === "low_beam" && worldX >= o.x - VINE_WALL_BUFFER && worldX <= o.x + o.width + VINE_WALL_BUFFER);
       if (nearWall) return;
 
-      const nearSpike = game.obstacles.some(o => o.type === "spike" && worldX >= o.x - 80 && worldX <= o.x + o.width + 260);
+      const nearSpike = game.obstacles.some(o => o.type === "spike" && worldX >= o.x - VINE_SPIKE_BUFFER && worldX <= o.x + o.width + VINE_SPIKE_BUFFER);
       if (nearSpike) return;
     }
 
     game.vines.push({
       x: worldX,
-      anchorY: 20,
-      length: 180 + Math.random() * 80,
-      angle: -Math.PI / 4,
+      anchorY: anchorY ?? 20,
+      length: length ?? (180 + Math.random() * 80),
+      angle: angle ?? -Math.PI / 4,
       angularVelocity: 0,
     });
     game.lastVineX = worldX;
@@ -420,21 +466,22 @@ export default function Game() {
         passed: false
       });
 
-      const preChasmVineX = chasmX - 120;
-      const midChasmVineX = chasmX + width / 2;
-      spawnVine(preChasmVineX, { force: true });
-      spawnVine(midChasmVineX, { force: true });
+      const preChasmVineX = chasmX - 140;
+      const midChasmVineX = chasmX + width * 0.45;
+      spawnVine(preChasmVineX, { force: true, length: 240, angle: -Math.PI / 6 });
+      spawnVine(midChasmVineX, { force: true, length: 220, angle: -Math.PI / 10, anchorY: 30 });
 
       game.lastObstacleX = chasmX + width;
-
-      // Flatten terrain for Chasm
-      game.terrain.forEach((seg: TerrainSegment) => {
-        if (seg.startX < chasmX + width && seg.endX > chasmX) {
-          seg.startY = BASE_GROUND_Y;
-          seg.endY = BASE_GROUND_Y;
-        }
-      });
       return; // Done
+    }
+
+    let obstacleX = worldX;
+    const isNearVine = (buffer: number) => game.vines.some(v => Math.abs(v.x - obstacleX) < buffer);
+    if (type === "low_beam" && isNearVine(VINE_WALL_BUFFER)) {
+      obstacleX += VINE_WALL_BUFFER;
+    }
+    if (type === "spike" && isNearVine(VINE_SPIKE_BUFFER)) {
+      obstacleX += VINE_SPIKE_BUFFER;
     }
 
     switch (type) {
@@ -458,35 +505,15 @@ export default function Game() {
     }
 
     game.obstacles.push({
-      x: worldX,
+      x: obstacleX,
       type,
       width,
       height,
       passed: false,
     });
 
-    // Clear terrain for normal gap
-    if (type === "gap") {
-      game.terrain.forEach((seg: TerrainSegment) => {
-        if (seg.startX < worldX + width && seg.endX > worldX) {
-          seg.startY = BASE_GROUND_Y;
-          seg.endY = BASE_GROUND_Y;
-        }
-      });
-    }
-
-    game.lastObstacleX = worldX + width;
-    if (type === "gap") game.lastVineX = worldX;
-
-    // Force FLAT terrain for the gap to prevent hill-clipping
-    // We look ahead and flatten everything for a safe distance
-    game.terrain.forEach((seg: TerrainSegment) => {
-      // Flatten a bit before and after the gap to avoid "hills on pits"
-      if (seg.endX > worldX - 100 && seg.startX < worldX + width + 100) {
-        seg.startY = BASE_GROUND_Y;
-        seg.endY = BASE_GROUND_Y;
-      }
-    });
+    game.lastObstacleX = obstacleX + width;
+    if (type === "gap") game.lastVineX = obstacleX;
 
   }, [spawnVine]);
 
@@ -699,7 +726,12 @@ export default function Game() {
         ).sort((a, b) => a.x - b.x);
 
         if (overlappingGaps.length === 0) {
-          currentBlock.push(segment);
+          currentBlock.push({
+            startX: segment.startX,
+            endX: segment.endX,
+            startY: getTerrainHeight(segment.startX, true),
+            endY: getTerrainHeight(segment.endX, true),
+          });
         } else {
           // Complex case: Segment hits one or more gaps.
           // We need to carve it up.
@@ -710,19 +742,11 @@ export default function Game() {
             if (cursor < gap.x) {
               // Create a temp segment for the solid part
               const end = Math.min(segment.endX, gap.x);
-              // Interpolate Y height for the split point to ensure smooth connections
-              // t = (targetX - startX) / (endX - startX)
-              const t1 = (cursor - segment.startX) / (segment.endX - segment.startX);
-              const t2 = (end - segment.startX) / (segment.endX - segment.startX);
-
-              const y1 = segment.startY + (segment.endY - segment.startY) * t1;
-              const y2 = segment.startY + (segment.endY - segment.startY) * t2;
-
               currentBlock.push({
                 startX: cursor,
                 endX: end,
-                startY: y1,
-                endY: y2
+                startY: getTerrainHeight(cursor, true),
+                endY: getTerrainHeight(end, true)
               });
             }
 
@@ -736,14 +760,11 @@ export default function Game() {
 
           // 4. Trail after the last gap?
           if (cursor < segment.endX) {
-            const t1 = (cursor - segment.startX) / (segment.endX - segment.startX);
-            const y1 = segment.startY + (segment.endY - segment.startY) * t1;
-
             currentBlock.push({
               startX: cursor,
               endX: segment.endX,
-              startY: y1,
-              endY: segment.endY
+              startY: getTerrainHeight(cursor, true),
+              endY: getTerrainHeight(segment.endX, true)
             });
           }
         }
@@ -1158,6 +1179,28 @@ export default function Game() {
       ctx.restore();
     };
 
+    const getVinePoint = (vine: Vine, t: number) => {
+      const startX = vine.x;
+      const startY = vine.anchorY;
+      const endX = vine.x + Math.sin(vine.angle) * vine.length;
+      const endY = vine.anchorY + Math.cos(vine.angle) * vine.length;
+
+      const cp1x = vine.x + Math.sin(vine.angle * 0.5) * vine.length * 0.3;
+      const cp1y = vine.anchorY + vine.length * 0.3;
+      const cp2x = vine.x + Math.sin(vine.angle * 0.8) * vine.length * 0.7;
+      const cp2y = vine.anchorY + vine.length * 0.7;
+
+      const u = 1 - t;
+      const tt = t * t;
+      const uu = u * u;
+      const uuu = uu * u;
+      const ttt = tt * t;
+
+      const x = uuu * startX + 3 * uu * t * cp1x + 3 * u * tt * cp2x + ttt * endX;
+      const y = uuu * startY + 3 * uu * t * cp1y + 3 * u * tt * cp2y + ttt * endY;
+      return { x, y };
+    };
+
     const drawCoin = (coin: Coin) => {
       if (coin.collected) return;
 
@@ -1327,6 +1370,7 @@ export default function Game() {
         // The wall exists from Y=0 to wallBottom.
         // If player Top < wallBottom, they hit the wall.
         if (p.x + p.width > obs.x && p.x < obs.x + obs.width) {
+          if (pTop < 0) return false;
           if (pTop < wallBottom) {
             return true; // Bonk!
           }
@@ -1365,6 +1409,8 @@ export default function Game() {
       game.frameCount++;
 
       if (game.shake > 0) game.shake *= 0.9;
+      const zoomTarget = p.y < -40 ? Math.max(0.7, 1 + p.y / 600) : 1;
+      game.cameraZoom += (zoomTarget - game.cameraZoom) * 0.08;
 
       // Update Slope Physics
       // Use visual center queries to ignore pits (preventing massive slope spikes)
@@ -1391,6 +1437,13 @@ export default function Game() {
       }
 
       game.distanceTraveled += p.vx * 0.1;
+      if (game.distanceTraveled >= game.nextGlideChargeDistance) {
+        const charges = Math.floor((game.distanceTraveled - game.nextGlideChargeDistance) / GLIDE_CHARGE_DISTANCE) + 1;
+        game.glideSeconds += charges * GLIDE_CHARGE_SECONDS;
+        game.nextGlideChargeDistance += charges * GLIDE_CHARGE_DISTANCE;
+      }
+      const lastChargeBase = game.nextGlideChargeDistance - GLIDE_CHARGE_DISTANCE;
+      game.glideChargeProgress = Math.min(1, Math.max(0, (game.distanceTraveled - lastChargeBase) / GLIDE_CHARGE_DISTANCE));
       game.scoreValue = Math.floor(game.distanceTraveled * 10) + game.coinsCollected * 100;
 
       if (p.invincible > 0) p.invincible--;
@@ -1474,20 +1527,20 @@ export default function Game() {
 
       if (p.state === "swinging" && p.onVine) {
         const vine = p.onVine;
+        const vineLength = p.vineLength || vine.length;
 
         const gravity = 0.002;
         vine.angularVelocity += -gravity * Math.sin(vine.angle);
         vine.angularVelocity *= 0.98; // Increased damping to reduce extreme swinging
         vine.angle += vine.angularVelocity;
 
-        const vineScreenX = vine.x;
-        p.x = vineScreenX + Math.sin(vine.angle) * vine.length - p.width / 2;
-        p.y = vine.anchorY + Math.cos(vine.angle) * vine.length - p.height / 2;
+        p.x = vine.x + Math.sin(vine.angle) * vineLength - p.width / 2;
+        p.y = vine.anchorY + Math.cos(vine.angle) * vineLength - p.height / 2;
 
         game.vineSwingTime = (game.vineSwingTime || 0) + 1;
 
         if (!game.keys.up && game.vineSwingTime > 15) {
-          const releaseSpeed = vine.angularVelocity * vine.length;
+          const releaseSpeed = vine.angularVelocity * vineLength;
 
           const forwardBoost = Math.max(0, Math.cos(vine.angle)) * Math.abs(releaseSpeed) * 1.5;
           p.vx = PLAYER_BASE_SPEED + forwardBoost;
@@ -1497,6 +1550,7 @@ export default function Game() {
 
           p.state = "jumping";
           p.onVine = null;
+          p.vineLength = 0;
           game.vineSwingTime = 0;
           createParticles(p.x + p.width / 2, p.y + p.height / 2, "#4caf50", 10);
           soundRef.current.playVineRelease();
@@ -1529,7 +1583,15 @@ export default function Game() {
           soundRef.current.playJump();
         }
 
-        p.vy += GRAVITY;
+        const isAirborne = p.y + p.height < groundY - 5;
+        let gravityScale = 1;
+        if (game.keys.up && isAirborne && game.glideSeconds > 0) {
+          gravityScale = 0.2;
+          game.glideSeconds = Math.max(0, game.glideSeconds - 1 / 60);
+          if (p.vy > 2) p.vy = 2;
+        }
+
+        p.vy += GRAVITY * gravityScale;
         p.y += p.vy;
         p.x += p.vx;
 
@@ -1597,19 +1659,28 @@ export default function Game() {
 
       game.vines.forEach((vine: Vine) => {
         if (p.state !== "swinging" && !game.vineGrabCooldown) {
-          const vineScreenX = vine.x;
-          // Check collision with the tip of the vine
-          const vineEndX = vineScreenX + Math.sin(vine.angle) * vine.length;
-          const vineEndY = vine.anchorY + Math.cos(vine.angle) * vine.length;
+          const playerX = p.x + p.width / 2;
+          const playerY = p.y + p.height / 2;
+          let closestDist = Infinity;
+          let closestPoint = { x: 0, y: 0 };
 
-          const dx = (p.x + p.width / 2) - vineEndX;
-          const dy = p.y - vineEndY;
-          const dist = Math.sqrt(dx * dx + dy * dy);
+          for (let i = 0; i <= 10; i++) {
+            const t = i / 10;
+            const point = getVinePoint(vine, t);
+            const dx = playerX - point.x;
+            const dy = playerY - point.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < closestDist) {
+              closestDist = dist;
+              closestPoint = point;
+            }
+          }
 
-          // Manual Grab: Require UP key + reasonable radius (60)
-          if (dist < 60 && game.keys.up && (p.state === "jumping" || p.state === "falling")) {
+          // Manual Grab: Require UP key + reasonable radius
+          if (closestDist < VINE_GRAB_RADIUS && game.keys.up && (p.state === "jumping" || p.state === "falling")) {
             p.state = "swinging";
             p.onVine = vine;
+            p.vineLength = Math.max(40, Math.hypot(closestPoint.x - vine.x, closestPoint.y - vine.anchorY));
             game.vineSwingTime = 0;
             game.vineGrabCooldown = 15;
 
@@ -1618,6 +1689,8 @@ export default function Game() {
 
             p.vy = 0;
             p.height = PLAYER_HEIGHT;
+            p.x = closestPoint.x - p.width / 2;
+            p.y = closestPoint.y - p.height / 2;
             soundRef.current.playVineGrab();
           }
         }
@@ -1727,6 +1800,16 @@ export default function Game() {
         setCoins(game.coinsCollected);
         game.lastDisplayedCoins = game.coinsCollected;
       }
+      const glideDisplay = Math.round(game.glideSeconds * 10) / 10;
+      if (glideDisplay !== game.lastDisplayedGlideSeconds) {
+        setGlideSeconds(glideDisplay);
+        game.lastDisplayedGlideSeconds = glideDisplay;
+      }
+      const glideProgressDisplay = Math.round(game.glideChargeProgress * 100) / 100;
+      if (glideProgressDisplay !== game.lastDisplayedGlideProgress) {
+        setGlideChargeProgress(glideProgressDisplay);
+        game.lastDisplayedGlideProgress = glideProgressDisplay;
+      }
     };
 
     const drawRadar = () => {
@@ -1786,6 +1869,9 @@ export default function Game() {
         const sy = (Math.random() - 0.5) * game.shake;
         ctx.translate(sx, sy);
       }
+      ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+      ctx.scale(game.cameraZoom, game.cameraZoom);
+      ctx.translate(-CANVAS_WIDTH / 2, -CANVAS_HEIGHT / 2);
 
       drawBackground();
       drawFireflies();
@@ -1872,12 +1958,12 @@ export default function Game() {
       }
       drawParticles();
 
+      ctx.restore();
+
       drawVignette();
 
       // Radar must be on TOP of everything (last layer)
       drawRadar();
-
-      ctx.restore();
     };
 
     const gameLoop = () => {
@@ -1991,13 +2077,27 @@ export default function Game() {
                     {score.toLocaleString()}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-                  <div className="text-sm font-bold text-white/70 uppercase tracking-widest" data-testid="text-coins">
-                    {coins} COINS
-                  </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                <div className="text-sm font-bold text-white/70 uppercase tracking-widest" data-testid="text-coins">
+                  {coins} COINS
                 </div>
               </div>
+              <div className="mt-2">
+                <div className="text-[10px] font-semibold text-white/60 uppercase tracking-widest">Glide</div>
+                <div className="mt-1 h-2 w-32 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-emerald-400 transition-all duration-200"
+                    style={{
+                      width: `${Math.min(100, ((glideSeconds + glideChargeProgress * GLIDE_CHARGE_SECONDS) / GLIDE_MAX_DISPLAY_SECONDS) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <div className="mt-1 text-[10px] text-white/60" data-testid="text-glide-seconds">
+                  {glideSeconds.toFixed(1)}s
+                </div>
+              </div>
+            </div>
 
               {/* Center Distance Panel */}
               <div className="bg-white/10 backdrop-blur-lg px-8 py-3 rounded-full border border-white/20 shadow-lg">
