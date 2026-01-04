@@ -353,10 +353,20 @@ export default function Game() {
     soundRef.current.playGameOver();
   }, [playerName, submitScoreMutation, createParticles]); // Added createParticles to dependencies
 
-  const spawnVine = useCallback((worldX: number) => {
+  const spawnVine = useCallback((worldX: number, options: { force?: boolean } = {}) => {
     const game = gameRef.current;
-    // Vine spawning logic restored for chasms
+    const { force = false } = options;
 
+    if (!force) {
+      const inGap = game.obstacles.some(o => o.type === "gap" && worldX >= o.x && worldX <= o.x + o.width);
+      if (inGap) return;
+
+      const nearWall = game.obstacles.some(o => o.type === "low_beam" && worldX >= o.x - 220 && worldX <= o.x + o.width + 220);
+      if (nearWall) return;
+
+      const nearSpike = game.obstacles.some(o => o.type === "spike" && worldX >= o.x - 80 && worldX <= o.x + o.width + 260);
+      if (nearSpike) return;
+    }
 
     game.vines.push({
       x: worldX,
@@ -366,7 +376,7 @@ export default function Game() {
       angularVelocity: 0,
     });
     game.lastVineX = worldX;
-  }, [getTerrainHeight]);
+  }, []);
 
   const spawnObstacle = useCallback((worldX: number) => {
     const game = gameRef.current;
@@ -410,8 +420,10 @@ export default function Game() {
         passed: false
       });
 
-      spawnVine(chasmX + 100); // Cliff hanger vine
-      if (width > 1000) spawnVine(chasmX + width / 2 + 100);
+      const preChasmVineX = chasmX - 120;
+      const midChasmVineX = chasmX + width / 2;
+      spawnVine(preChasmVineX, { force: true });
+      spawnVine(midChasmVineX, { force: true });
 
       game.lastObstacleX = chasmX + width;
 
@@ -480,6 +492,8 @@ export default function Game() {
 
   const spawnCoin = useCallback((worldX: number, groundY: number) => {
     const game = gameRef.current;
+    const inGap = game.obstacles.some(o => o.type === "gap" && worldX >= o.x && worldX <= o.x + o.width);
+    if (inGap) return;
     const yPositions = [groundY - 80, groundY - 130, groundY - 180];
     game.coinsList.push({
       x: worldX,
@@ -877,12 +891,14 @@ export default function Game() {
 
       if (screenX > -200) {
         ctx.save();
-        const pGroundY = getTerrainHeight(police.x + 50);
-        ctx.translate(0, pGroundY - BASE_GROUND_Y);
+      const policeCenterX = police.x + 50;
+      const policeOverGap = game.obstacles.some(o => o.type === "gap" && policeCenterX > o.x && policeCenterX < o.x + o.width);
+      const pGroundY = policeOverGap ? BASE_GROUND_Y : getTerrainHeight(policeCenterX, true);
+      ctx.translate(0, pGroundY - BASE_GROUND_Y);
 
-        // Body (Realistic black sedan)
-        ctx.fillStyle = "#0c0a09"; // Stone-950
-        ctx.fillRect(screenX, BASE_GROUND_Y - 45, 100, 35);
+      // Body (Realistic black sedan)
+      ctx.fillStyle = "#0c0a09"; // Stone-950
+      ctx.fillRect(screenX, BASE_GROUND_Y - 45, 100, 35);
         ctx.fillStyle = "#1c1917"; // Stone-900 hood/roof
         ctx.fillRect(screenX + 15, BASE_GROUND_Y - 65, 60, 20);
 
@@ -891,14 +907,38 @@ export default function Game() {
         windsheildGradient.addColorStop(0, "#44403c");
         windsheildGradient.addColorStop(0.5, "#78716c");
         windsheildGradient.addColorStop(1, "#44403c");
-        ctx.fillStyle = windsheildGradient;
-        ctx.fillRect(screenX + 20, BASE_GROUND_Y - 60, 25, 12);
-        ctx.fillRect(screenX + 50, BASE_GROUND_Y - 60, 20, 12);
+      ctx.fillStyle = windsheildGradient;
+      ctx.fillRect(screenX + 20, BASE_GROUND_Y - 60, 25, 12);
+      ctx.fillRect(screenX + 50, BASE_GROUND_Y - 60, 20, 12);
 
-        // Emergency Lights (Glow)
-        const lightOn = Math.floor(game.frameCount / 5) % 2 === 0;
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = lightOn ? "#ef4444" : "#3b82f6";
+      if (policeOverGap) {
+        const rotorX = screenX + 50;
+        const rotorY = BASE_GROUND_Y - 85;
+        ctx.save();
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(rotorX, rotorY + 10);
+        ctx.lineTo(rotorX, BASE_GROUND_Y - 65);
+        ctx.stroke();
+        ctx.translate(rotorX, rotorY);
+        ctx.rotate(game.frameCount * 0.25);
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-30, 0);
+        ctx.lineTo(30, 0);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, -30);
+        ctx.lineTo(0, 30);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Emergency Lights (Glow)
+      const lightOn = Math.floor(game.frameCount / 5) % 2 === 0;
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = lightOn ? "#ef4444" : "#3b82f6";
         ctx.fillStyle = lightOn ? "#ef4444" : "#3b82f6";
         ctx.beginPath(); ctx.arc(screenX + 35, BASE_GROUND_Y - 70, 8, 0, Math.PI * 2); ctx.fill();
         ctx.shadowColor = lightOn ? "#3b82f6" : "#ef4444";
@@ -1351,7 +1391,6 @@ export default function Game() {
       }
 
       game.distanceTraveled += p.vx * 0.1;
-      setDistance(Math.floor(game.distanceTraveled)); // Update state for display
       game.scoreValue = Math.floor(game.distanceTraveled * 10) + game.coinsCollected * 100;
 
       if (p.invincible > 0) p.invincible--;
@@ -1536,7 +1575,7 @@ export default function Game() {
           }
         });
 
-        if (!onRamp && !overGap) {
+        if (!onRamp && !isOverGap) {
           const currentGroundY = getTerrainHeight(p.x + p.width / 2);
           if (p.y + p.height >= currentGroundY) {
             p.y = currentGroundY - (p.state === "sliding" ? SLIDE_HEIGHT : PLAYER_HEIGHT);
@@ -1549,7 +1588,7 @@ export default function Game() {
           } else if (p.y > groundY - PLAYER_HEIGHT + 20 && p.state !== "jumping") {
             p.state = "falling";
           }
-        } else if (overGap && p.state !== "swinging") {
+        } else if (isOverGap && p.state !== "swinging") {
           // If we are over a gap and not swinging, we MUST fall.
           // Even if we are "jumping", once we are over the pit, the abyss is the only ground.
           p.state = "falling";
@@ -1822,6 +1861,7 @@ export default function Game() {
         ctx.fillStyle = "#1e293b";
         ctx.fillRect(helX - 5, helY - 35, 10, 15);
 
+        ctx.restore();
       }
 
       drawPolice();
