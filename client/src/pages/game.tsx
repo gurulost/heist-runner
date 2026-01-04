@@ -495,6 +495,9 @@ export default function Game() {
       const game = gameRef.current;
       if (e.key === "ArrowUp" || e.key === "w" || e.key === " ") {
         e.preventDefault();
+        if (!game.keys.up && game.player.state !== "falling") {
+          soundRef.current.playJump();
+        }
         game.keys.up = true;
       }
       if (e.key === "ArrowDown" || e.key === "s") {
@@ -505,6 +508,7 @@ export default function Game() {
         togglePause();
       }
       if (e.key === "Enter" && gameState === "start") {
+        if (!playerName.trim()) return; // Validation
         startGame();
       }
     };
@@ -525,7 +529,7 @@ export default function Game() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [gameState, togglePause, startGame]);
+  }, [gameState, togglePause, startGame, playerName]);
 
   useEffect(() => {
     // Allow loop to continue for victory logic if needed, but we switch state at end
@@ -675,13 +679,59 @@ export default function Game() {
       game.terrain.forEach((segment: TerrainSegment) => {
         if (segment.endX < visibleStart || segment.startX > visibleEnd) return;
 
-        const inGap = game.obstacles.some((o: Obstacle) => o.type === "gap" && segment.startX >= o.x && segment.endX <= o.x + o.width);
+        // Check for interactions with gaps
+        const overlappingGaps = game.obstacles.filter((o: Obstacle) => o.type === "gap" &&
+          !(segment.endX <= o.x || segment.startX >= o.x + o.width)
+        ).sort((a, b) => a.x - b.x);
 
-        if (inGap) {
-          if (currentBlock.length > 0) blocks.push(currentBlock);
-          currentBlock = [];
-        } else {
+        if (overlappingGaps.length === 0) {
           currentBlock.push(segment);
+        } else {
+          // Complex case: Segment hits one or more gaps.
+          // We need to carve it up.
+          let cursor = segment.startX;
+
+          overlappingGaps.forEach(gap => {
+            // 1. Draw solid ground BEFORE the gap
+            if (cursor < gap.x) {
+              // Create a temp segment for the solid part
+              const end = Math.min(segment.endX, gap.x);
+              // Interpolate Y height for the split point to ensure smooth connections
+              // t = (targetX - startX) / (endX - startX)
+              const t1 = (cursor - segment.startX) / (segment.endX - segment.startX);
+              const t2 = (end - segment.startX) / (segment.endX - segment.startX);
+
+              const y1 = segment.startY + (segment.endY - segment.startY) * t1;
+              const y2 = segment.startY + (segment.endY - segment.startY) * t2;
+
+              currentBlock.push({
+                startX: cursor,
+                endX: end,
+                startY: y1,
+                endY: y2
+              });
+            }
+
+            // 2. We hit a gap. End the current block to break the visual mesh.
+            if (currentBlock.length > 0) blocks.push(currentBlock);
+            currentBlock = [];
+
+            // 3. Move cursor to end of gap
+            cursor = Math.max(cursor, gap.x + gap.width);
+          });
+
+          // 4. Trail after the last gap?
+          if (cursor < segment.endX) {
+            const t1 = (cursor - segment.startX) / (segment.endX - segment.startX);
+            const y1 = segment.startY + (segment.endY - segment.startY) * t1;
+
+            currentBlock.push({
+              startX: cursor,
+              endX: segment.endX,
+              startY: y1,
+              endY: segment.endY
+            });
+          }
         }
       });
       if (currentBlock.length > 0) blocks.push(currentBlock);
@@ -1574,8 +1624,8 @@ export default function Game() {
           if (Math.sqrt(dx * dx + dy * dy) < 30) {
             coin.collected = true;
             game.coinsCollected++;
-            createParticles(coin.x, coin.y, "#ffd700", 8);
             soundRef.current.playCoin();
+            createParticles(coin.x, coin.y, "#fbbf24", 5);
           }
         }
       });
@@ -1589,7 +1639,18 @@ export default function Game() {
         return particle.life > 0;
       });
 
-      game.cameraX = p.x - CANVAS_WIDTH / 3;
+      // Memory Cleanup
+      if (game.frameCount % 60 === 0) {
+        const cullX = game.cameraX - 1000;
+        game.terrain = game.terrain.filter(t => t.endX > cullX);
+        game.obstacles = game.obstacles.filter(o => o.x + o.width > cullX);
+        game.coinsList = game.coinsList.filter(c => c.x > cullX || !c.collected);
+        game.particles = game.particles.filter(p => p.life > 0);
+      }
+
+      // Camera Follow
+      const targetCamX = p.x - CANVAS_WIDTH * 0.3;
+      game.cameraX += (targetCamX - game.cameraX) * 0.1;
 
       const spawnX = game.cameraX + CANVAS_WIDTH + 800;
 
@@ -1792,6 +1853,29 @@ export default function Game() {
     };
   }, [gameState, gameOver, spawnObstacle, spawnVine, spawnCoin, createParticles, getTerrainHeight, generateTerrain]);
 
+  const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
+    // e.preventDefault(); // Don't prevent default on everything, might block UI interaction
+    if (gameState === "playing") {
+      gameRef.current.keys.up = true;
+      // Play jump sound on touch if not already playing? 
+      // Better: rely on the update loop or strict trigger.
+      // Actually, standard is:
+      if (gameRef.current.player.state !== "falling") {
+        soundRef.current.playJump();
+      }
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent | React.MouseEvent) => {
+    // e.preventDefault();
+    if (gameState === "playing") {
+      gameRef.current.keys.up = false;
+    }
+  };
+
+  const handleMouseDown = handleTouchStart;
+  const handleMouseUp = handleTouchEnd;
+
   useEffect(() => {
     if (gameState !== "start" && gameState !== "gameover" && gameState !== "paused") return;
 
@@ -1834,15 +1918,21 @@ export default function Game() {
       <div className="relative w-full max-w-5xl aspect-video">
         <canvas
           ref={canvasRef}
-          width={960}
-          height={540}
-          className="w-full h-full rounded-lg shadow-2xl"
-          data-testid="game-canvas"
+          width={CANVAS_WIDTH}
+          height={CANVAS_HEIGHT}
+          className="block w-full h-full touch-none"
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+
+          style={{ width: "100%", height: "100%" }}
         />
 
         {gameState === "playing" && (
           <>
-            {/* Police Proximity Edge Glow */}
             <div
               className="absolute inset-0 pointer-events-none transition-opacity duration-300"
               style={{
@@ -1935,11 +2025,15 @@ export default function Game() {
                   setPlayerName(e.target.value);
                   localStorage.setItem("playerName", e.target.value);
                 }}
-                className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-center w-32"
+                placeholder="Enter Name"
+                className={`bg-gray-800 text-white px-4 py-2 rounded text-center border-2 ${!playerName.trim() ? "border-red-500" : "border-gray-600"} focus:border-green-500 outline-none w-64`}
                 maxLength={12}
                 data-testid="input-player-name"
               />
             </div>
+            <p className="text-gray-400 text-sm mt-2">
+              {!playerName.trim() ? "Name required" : "Use Arrow Keys or Tap to Jump"}
+            </p>
 
             {highScore > 0 && (
               <p className="text-lg text-yellow-400 mb-4" data-testid="text-high-score">
@@ -1950,6 +2044,7 @@ export default function Game() {
             <Button
               size="lg"
               onClick={startGame}
+              disabled={!playerName.trim()}
               className="px-12 py-6 text-xl font-bold rounded-full bg-gradient-to-r from-red-500 to-orange-600 hover:from-red-600 hover:to-orange-700 text-white shadow-lg shadow-red-500/30 transition-all duration-300"
               data-testid="button-play"
             >
@@ -2106,6 +2201,6 @@ export default function Game() {
           </div>
         )}
       </div>
-    </div>
+    </div >
   );
 }
