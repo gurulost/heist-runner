@@ -88,6 +88,66 @@ const GLIDE_MAX_DISPLAY_SECONDS = 3;
 const VICTORY_DISTANCE = 20000;
 const CHECKPOINT_DISTANCE = 10000;
 
+type CharacterStyle = "classic" | "ninja" | "clown" | "gold" | "neon";
+
+interface CharacterConfig {
+  name: string;
+  stripeColor1: string;
+  stripeColor2: string;
+  skinColor: string;
+  maskColor: string;
+  bagColor: string;
+  bagSymbol: string;
+}
+
+const CHARACTER_STYLES: Record<CharacterStyle, CharacterConfig> = {
+  classic: {
+    name: "Classic Robber",
+    stripeColor1: "#1a1a1a",
+    stripeColor2: "#ffffff",
+    skinColor: "#ffccbc",
+    maskColor: "#1a1a1a",
+    bagColor: "#8B4513",
+    bagSymbol: "$",
+  },
+  ninja: {
+    name: "Shadow Ninja",
+    stripeColor1: "#1e1b4b",
+    stripeColor2: "#4c1d95",
+    skinColor: "#d4c5a9",
+    maskColor: "#0f0a1f",
+    bagColor: "#312e81",
+    bagSymbol: "*",
+  },
+  clown: {
+    name: "Crazy Clown",
+    stripeColor1: "#dc2626",
+    stripeColor2: "#facc15",
+    skinColor: "#fef3c7",
+    maskColor: "#dc2626",
+    bagColor: "#7c3aed",
+    bagSymbol: "!",
+  },
+  gold: {
+    name: "Gold Digger",
+    stripeColor1: "#b45309",
+    stripeColor2: "#fbbf24",
+    skinColor: "#fef3c7",
+    maskColor: "#78350f",
+    bagColor: "#f59e0b",
+    bagSymbol: "$",
+  },
+  neon: {
+    name: "Neon Runner",
+    stripeColor1: "#0ea5e9",
+    stripeColor2: "#22d3ee",
+    skinColor: "#e0f2fe",
+    maskColor: "#0c4a6e",
+    bagColor: "#06b6d4",
+    bagSymbol: "+",
+  },
+};
+
 interface Plane {
   x: number;
   y: number;
@@ -114,6 +174,9 @@ export default function Game() {
   });
   const [policeWarning, setPoliceWarning] = useState(0);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterStyle>(() => {
+    return (localStorage.getItem("selectedCharacter") as CharacterStyle) || "classic";
+  });
   const [glideSeconds, setGlideSeconds] = useState(0);
   const [glideChargeProgress, setGlideChargeProgress] = useState(0);
 
@@ -820,6 +883,7 @@ export default function Game() {
     const drawPlayer = () => {
       const p = game.player;
       const screenX = p.x - game.cameraX;
+      const charConfig = CHARACTER_STYLES[selectedCharacter];
 
       ctx.save();
 
@@ -859,15 +923,15 @@ export default function Game() {
 
       if (p.state === "sliding") {
         const slideY = p.y + p.height - SLIDE_HEIGHT;
-        ctx.fillStyle = "#1a1a1a";
+        ctx.fillStyle = charConfig.stripeColor1;
         ctx.fillRect(screenX, slideY, p.width + 10, SLIDE_HEIGHT - 5);
 
-        ctx.fillStyle = "#ffccbc";
+        ctx.fillStyle = charConfig.skinColor;
         ctx.beginPath();
         ctx.arc(screenX + p.width + 5, slideY + SLIDE_HEIGHT / 2, 10, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = "#1a1a1a";
+        ctx.fillStyle = charConfig.maskColor;
         ctx.fillRect(screenX + p.width - 5, slideY + SLIDE_HEIGHT / 2 - 8, 20, 8);
       } else {
         const stripeWidth = 8;
@@ -875,18 +939,18 @@ export default function Game() {
         const bodyHeight = p.height - 35;
 
         for (let i = 0; i < Math.ceil((p.width - 10) / stripeWidth); i++) {
-          ctx.fillStyle = i % 2 === 0 ? "#1a1a1a" : "#ffffff";
+          ctx.fillStyle = i % 2 === 0 ? charConfig.stripeColor1 : charConfig.stripeColor2;
           const stripeX = screenX + 5 + i * stripeWidth;
           const width = Math.min(stripeWidth, screenX + p.width - 5 - stripeX);
           ctx.fillRect(stripeX, bodyTop, width, bodyHeight);
         }
 
-        ctx.fillStyle = "#ffccbc";
+        ctx.fillStyle = charConfig.skinColor;
         ctx.beginPath();
         ctx.arc(screenX + p.width / 2, p.y + 12 + bounce, 12, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = "#1a1a1a";
+        ctx.fillStyle = charConfig.maskColor;
         ctx.fillRect(screenX + p.width / 2 - 15, p.y + 8 + bounce, 30, 10);
 
         ctx.fillStyle = "#ffffff";
@@ -895,7 +959,7 @@ export default function Game() {
         ctx.arc(screenX + p.width / 2 + 5, p.y + 12 + bounce, 3, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = "#1a1a1a";
+        ctx.fillStyle = charConfig.stripeColor1;
         ctx.fillRect(screenX + 8, p.y + p.height - 15, 10, 15);
         ctx.fillRect(screenX + p.width - 18, p.y + p.height - 15, 10, 15);
 
@@ -906,21 +970,21 @@ export default function Game() {
         }
       }
 
-      ctx.fillStyle = "#8B4513";
+      ctx.fillStyle = charConfig.bagColor;
       ctx.beginPath();
       ctx.ellipse(screenX + p.width + 5, p.y + 35 + bounce, 12, 8, 0.3, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#FFD700";
       ctx.font = "bold 8px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("$", screenX + p.width + 5, p.y + 38 + bounce);
+      ctx.fillText(charConfig.bagSymbol, screenX + p.width + 5, p.y + 38 + bounce);
 
       if (p.state === "jumping" || p.state === "falling") {
-        ctx.fillStyle = "#ffccbc";
+        ctx.fillStyle = charConfig.skinColor;
         ctx.fillRect(screenX - 5, p.y + 25, 10, 5);
         ctx.fillRect(screenX + p.width - 5, p.y + 25, 10, 5);
       } else if (p.state === "swinging") {
-        ctx.fillStyle = "#ffccbc";
+        ctx.fillStyle = charConfig.skinColor;
         ctx.fillRect(screenX + p.width / 2 - 3, p.y - 10, 6, 15);
       }
 
@@ -1999,7 +2063,7 @@ export default function Game() {
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [gameState, gameOver, spawnObstacle, spawnVine, spawnCoin, createParticles, getTerrainHeight, generateTerrain]);
+  }, [gameState, gameOver, spawnObstacle, spawnVine, spawnCoin, createParticles, getTerrainHeight, generateTerrain, selectedCharacter]);
 
   const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
     // e.preventDefault(); // Don't prevent default on everything, might block UI interaction
@@ -2196,6 +2260,51 @@ export default function Game() {
             <p className="text-gray-400 text-sm mt-2">
               {!playerName.trim() ? "Name required" : "Use Arrow Keys or Tap to Jump"}
             </p>
+
+            <div className="mt-4 mb-4">
+              <p className="text-white/70 text-sm mb-2 text-center">Select Character:</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {(Object.keys(CHARACTER_STYLES) as CharacterStyle[]).map((style) => {
+                  const config = CHARACTER_STYLES[style];
+                  const isSelected = selectedCharacter === style;
+                  return (
+                    <button
+                      key={style}
+                      onClick={() => {
+                        setSelectedCharacter(style);
+                        localStorage.setItem("selectedCharacter", style);
+                      }}
+                      className={`flex flex-col items-center p-2 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? "border-yellow-400 bg-yellow-400/20"
+                          : "border-white/20 bg-black/30 hover:border-white/40"
+                      }`}
+                      data-testid={`button-character-${style}`}
+                    >
+                      <div className="w-10 h-14 relative">
+                        <div
+                          className="absolute inset-x-1 top-0 h-3 rounded-full"
+                          style={{ backgroundColor: config.skinColor }}
+                        />
+                        <div
+                          className="absolute inset-x-0 top-1 h-2 rounded-sm"
+                          style={{ backgroundColor: config.maskColor }}
+                        />
+                        <div className="absolute inset-x-0 top-4 bottom-2 flex">
+                          <div className="w-1/2 h-full" style={{ backgroundColor: config.stripeColor1 }} />
+                          <div className="w-1/2 h-full" style={{ backgroundColor: config.stripeColor2 }} />
+                        </div>
+                        <div
+                          className="absolute bottom-0 inset-x-1 h-2"
+                          style={{ backgroundColor: config.stripeColor1 }}
+                        />
+                      </div>
+                      <span className="text-xs text-white/80 mt-1 whitespace-nowrap">{config.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {highScore > 0 && (
               <p className="text-lg text-yellow-400 mb-4" data-testid="text-high-score">
