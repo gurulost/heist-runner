@@ -698,7 +698,7 @@ export default function Game() {
       const extH = canvas.height * zs + 100;
       const offX = -((extW - canvas.width) / 2);
       const offY = -((extH - canvas.height) / 2);
-      
+
       // Deep Jungle Sky Gradient - covers extended area
       const skyGradient = ctx.createLinearGradient(0, offY, 0, offY + extH);
       skyGradient.addColorStop(0, "#022c22"); // Ultra deep teal
@@ -1004,14 +1004,14 @@ export default function Game() {
 
       if (screenX > -200) {
         ctx.save();
-      const policeCenterX = police.x + 50;
-      const policeOverGap = game.obstacles.some(o => o.type === "gap" && policeCenterX > o.x && policeCenterX < o.x + o.width);
-      const pGroundY = policeOverGap ? BASE_GROUND_Y : getTerrainHeight(policeCenterX, true);
-      ctx.translate(0, pGroundY - BASE_GROUND_Y);
+        const policeCenterX = police.x + 50;
+        const policeOverGap = game.obstacles.some(o => o.type === "gap" && policeCenterX > o.x && policeCenterX < o.x + o.width);
+        const pGroundY = policeOverGap ? BASE_GROUND_Y : getTerrainHeight(policeCenterX, true);
+        ctx.translate(0, pGroundY - BASE_GROUND_Y);
 
-      // Body (Realistic black sedan)
-      ctx.fillStyle = "#0c0a09"; // Stone-950
-      ctx.fillRect(screenX, BASE_GROUND_Y - 45, 100, 35);
+        // Body (Realistic black sedan)
+        ctx.fillStyle = "#0c0a09"; // Stone-950
+        ctx.fillRect(screenX, BASE_GROUND_Y - 45, 100, 35);
         ctx.fillStyle = "#1c1917"; // Stone-900 hood/roof
         ctx.fillRect(screenX + 15, BASE_GROUND_Y - 65, 60, 20);
 
@@ -1020,38 +1020,38 @@ export default function Game() {
         windsheildGradient.addColorStop(0, "#44403c");
         windsheildGradient.addColorStop(0.5, "#78716c");
         windsheildGradient.addColorStop(1, "#44403c");
-      ctx.fillStyle = windsheildGradient;
-      ctx.fillRect(screenX + 20, BASE_GROUND_Y - 60, 25, 12);
-      ctx.fillRect(screenX + 50, BASE_GROUND_Y - 60, 20, 12);
+        ctx.fillStyle = windsheildGradient;
+        ctx.fillRect(screenX + 20, BASE_GROUND_Y - 60, 25, 12);
+        ctx.fillRect(screenX + 50, BASE_GROUND_Y - 60, 20, 12);
 
-      if (policeOverGap) {
-        const rotorX = screenX + 50;
-        const rotorY = BASE_GROUND_Y - 85;
-        ctx.save();
-        ctx.strokeStyle = "#cbd5e1";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(rotorX, rotorY + 10);
-        ctx.lineTo(rotorX, BASE_GROUND_Y - 65);
-        ctx.stroke();
-        ctx.translate(rotorX, rotorY);
-        ctx.rotate(game.frameCount * 0.25);
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(-30, 0);
-        ctx.lineTo(30, 0);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, -30);
-        ctx.lineTo(0, 30);
-        ctx.stroke();
-        ctx.restore();
-      }
+        if (policeOverGap) {
+          const rotorX = screenX + 50;
+          const rotorY = BASE_GROUND_Y - 85;
+          ctx.save();
+          ctx.strokeStyle = "#cbd5e1";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(rotorX, rotorY + 10);
+          ctx.lineTo(rotorX, BASE_GROUND_Y - 65);
+          ctx.stroke();
+          ctx.translate(rotorX, rotorY);
+          ctx.rotate(game.frameCount * 0.25);
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(-30, 0);
+          ctx.lineTo(30, 0);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(0, -30);
+          ctx.lineTo(0, 30);
+          ctx.stroke();
+          ctx.restore();
+        }
 
-      // Emergency Lights (Glow)
-      const lightOn = Math.floor(game.frameCount / 5) % 2 === 0;
-      ctx.shadowBlur = 15;
-      ctx.shadowColor = lightOn ? "#ef4444" : "#3b82f6";
+        // Emergency Lights (Glow)
+        const lightOn = Math.floor(game.frameCount / 5) % 2 === 0;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = lightOn ? "#ef4444" : "#3b82f6";
         ctx.fillStyle = lightOn ? "#ef4444" : "#3b82f6";
         ctx.beginPath(); ctx.arc(screenX + 35, BASE_GROUND_Y - 70, 8, 0, Math.PI * 2); ctx.fill();
         ctx.shadowColor = lightOn ? "#3b82f6" : "#ef4444";
@@ -1529,7 +1529,7 @@ export default function Game() {
         if (p.vx < PLAYER_BASE_SPEED) p.vx = Math.min(PLAYER_BASE_SPEED, p.vx + 0.1);
       }
 
-      game.distanceTraveled += p.vx * 0.1;
+      game.distanceTraveled += p.vx * 0.5; // Increased from 0.1 for faster metrics
       if (game.distanceTraveled >= game.nextGlideChargeDistance) {
         const charges = Math.floor((game.distanceTraveled - game.nextGlideChargeDistance) / GLIDE_CHARGE_DISTANCE) + 1;
         game.glideSeconds += charges * GLIDE_CHARGE_SECONDS;
@@ -1658,7 +1658,7 @@ export default function Game() {
         const playerCenterX = p.x + p.width / 2;
         const playerLeftX = p.x + 5;
         const playerRightX = p.x + p.width - 5;
-        
+
         const overGap = game.obstacles.some(o => {
           if (o.type !== "gap") return false;
           const inGapLeft = playerLeftX > o.x && playerLeftX < o.x + o.width;
@@ -1666,7 +1666,7 @@ export default function Game() {
           const inGapCenter = playerCenterX > o.x && playerCenterX < o.x + o.width;
           return inGapLeft || inGapRight || inGapCenter;
         });
-        
+
         const groundY = getTerrainHeight(playerCenterX);
 
         if (game.keys.down && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "jumping" && !overGap) {
@@ -1746,7 +1746,7 @@ export default function Game() {
           const currentGroundY = getTerrainHeight(p.x + p.width / 2);
           const targetY = currentGroundY - (p.state === "sliding" ? SLIDE_HEIGHT : PLAYER_HEIGHT);
           const playerBottom = p.y + p.height;
-          
+
           if (playerBottom >= currentGroundY - 2) {
             if (p.state === "running" || p.state === "sliding") {
               p.y = targetY;
@@ -1980,9 +1980,24 @@ export default function Game() {
         const sy = (Math.random() - 0.5) * game.shake;
         ctx.translate(sx, sy);
       }
-      ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+      // Camera Transform with Vertical Follow for Zoom
+      // If we are zoomed out, we want to track the player's height to keep them centered
+      // Zoom centers on screen center (CANVAS_WIDTH/2, CANVAS_HEIGHT/2)
+      // We need to shift the context downwards if the player is high up
+
+      let verticalOffset = 0;
+      if (game.cameraZoom < 1) {
+        // The "center" of the view in world-space moves up as we zoom out.
+        // We need to counteract this if the player is flying high.
+        // Simple strategy: Keep player roughly in the middle vertical third
+        const playerScreenY = game.player.y;
+        const targetScreenY = CANVAS_HEIGHT * 0.4; // Aim for slightly above center
+        verticalOffset = (targetScreenY - playerScreenY) * (1 - game.cameraZoom);
+      }
+
+      ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + verticalOffset);
       ctx.scale(game.cameraZoom, game.cameraZoom);
-      ctx.translate(-CANVAS_WIDTH / 2, -CANVAS_HEIGHT / 2);
+      ctx.translate(-CANVAS_WIDTH / 2, -CANVAS_HEIGHT / 2 - verticalOffset);
 
       drawBackground();
       drawFireflies();
@@ -2188,27 +2203,27 @@ export default function Game() {
                     {score.toLocaleString()}
                   </div>
                 </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-                <div className="text-sm font-bold text-white/70 uppercase tracking-widest" data-testid="text-coins">
-                  {coins} COINS
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                  <div className="text-sm font-bold text-white/70 uppercase tracking-widest" data-testid="text-coins">
+                    {coins} COINS
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-[10px] font-semibold text-white/60 uppercase tracking-widest">Glide</div>
+                  <div className="mt-1 h-2 w-32 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-400 transition-all duration-200"
+                      style={{
+                        width: `${Math.min(100, ((glideSeconds + glideChargeProgress * GLIDE_CHARGE_SECONDS) / GLIDE_MAX_DISPLAY_SECONDS) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="mt-1 text-[10px] text-white/60" data-testid="text-glide-seconds">
+                    {glideSeconds.toFixed(1)}s
+                  </div>
                 </div>
               </div>
-              <div className="mt-2">
-                <div className="text-[10px] font-semibold text-white/60 uppercase tracking-widest">Glide</div>
-                <div className="mt-1 h-2 w-32 rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-emerald-400 transition-all duration-200"
-                    style={{
-                      width: `${Math.min(100, ((glideSeconds + glideChargeProgress * GLIDE_CHARGE_SECONDS) / GLIDE_MAX_DISPLAY_SECONDS) * 100)}%`,
-                    }}
-                  />
-                </div>
-                <div className="mt-1 text-[10px] text-white/60" data-testid="text-glide-seconds">
-                  {glideSeconds.toFixed(1)}s
-                </div>
-              </div>
-            </div>
 
               {/* Center Distance Panel */}
               <div className="bg-white/10 backdrop-blur-lg px-8 py-3 rounded-full border border-white/20 shadow-lg">
@@ -2258,13 +2273,15 @@ export default function Game() {
 
         {gameState === "start" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-lg overflow-y-auto py-8">
-            <h1
-              className="text-4xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-orange-300 to-yellow-400 mb-8 md:mb-12 animate-pulse tracking-tight"
-              style={{ fontFamily: "'Poppins', sans-serif" }}
-              data-testid="text-game-title"
-            >
-              HEIST RUNNER
-            </h1>
+            <div className="mb-4 md:mb-8 text-center">
+              <h1
+                className="text-5xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-orange-300 to-yellow-400 animate-pulse tracking-tight drop-shadow-sm"
+                style={{ fontFamily: "'Poppins', sans-serif" }}
+                data-testid="text-game-title"
+              >
+                HEIST RUNNER
+              </h1>
+            </div>
             <p className="text-lg md:text-xl text-white/80 mb-2">Escape the Police!</p>
 
             <div className="flex items-center gap-2 mb-4">
@@ -2299,11 +2316,10 @@ export default function Game() {
                         setSelectedCharacter(style);
                         localStorage.setItem("selectedCharacter", style);
                       }}
-                      className={`flex flex-col items-center p-2 rounded-lg border-2 transition-all ${
-                        isSelected
-                          ? "border-yellow-400 bg-yellow-400/20"
-                          : "border-white/20 bg-black/30 hover:border-white/40"
-                      }`}
+                      className={`flex flex-col items-center p-2 rounded-lg border-2 transition-all ${isSelected
+                        ? "border-yellow-400 bg-yellow-400/20"
+                        : "border-white/20 bg-black/30 hover:border-white/40"
+                        }`}
                       data-testid={`button-character-${style}`}
                     >
                       <div className="w-10 h-14 relative">
