@@ -258,7 +258,7 @@ export default function Game() {
       o: Math.random() * Math.PI * 2,
     })),
     shake: 0,
-    cameraZoom: 0.8,
+    cameraZoom: 1,
     plane: { // Renamed to Helicopter conceptually
       x: CANVAS_WIDTH + 200,
       y: 100,
@@ -373,7 +373,7 @@ export default function Game() {
     game.glideSeconds = 0;
     game.glideChargeProgress = 0;
     game.nextGlideChargeDistance = GLIDE_CHARGE_DISTANCE;
-    game.cameraZoom = 0.8;
+    game.cameraZoom = 1;
     game.plane = { x: -200, y: 100, vx: 0, state: "hidden", rotorAngle: 0 } as Plane;
     game.checkPointReached = false;
     game.checkPointUsed = false;
@@ -693,25 +693,31 @@ export default function Game() {
     if (game.shake === undefined) game.shake = 0;
 
     const drawBackground = () => {
-      // Deep Jungle Sky Gradient
-      const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      const zs = 1 / game.cameraZoom;
+      const extW = canvas.width * zs + 100;
+      const extH = canvas.height * zs + 100;
+      const offX = -((extW - canvas.width) / 2);
+      const offY = -((extH - canvas.height) / 2);
+      
+      // Deep Jungle Sky Gradient - covers extended area
+      const skyGradient = ctx.createLinearGradient(0, offY, 0, offY + extH);
       skyGradient.addColorStop(0, "#022c22"); // Ultra deep teal
       skyGradient.addColorStop(0.4, "#064e3b");
       skyGradient.addColorStop(1, "#065f46");
       ctx.fillStyle = skyGradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(offX, offY, extW, extH);
 
       // Atmospheric Fog / Horizon Depth
-      const fogGradient = ctx.createLinearGradient(0, canvas.height * 0.4, 0, canvas.height);
+      const fogGradient = ctx.createLinearGradient(0, canvas.height * 0.4, 0, offY + extH);
       fogGradient.addColorStop(0, "rgba(5, 150, 105, 0)");
       fogGradient.addColorStop(1, "rgba(20, 184, 166, 0.2)");
       ctx.fillStyle = fogGradient;
-      ctx.fillRect(0, canvas.height * 0.4, canvas.width, canvas.height * 0.6);
+      ctx.fillRect(offX, canvas.height * 0.4, extW, extH * 0.6);
 
       // 1. Distant Parallax Layer: Far Silhouettes
       ctx.fillStyle = "#011c15";
-      for (let i = 0; i < 6; i++) {
-        const x = ((i * 300 - game.cameraX * 0.05) % (canvas.width + 600)) - 300;
+      for (let i = 0; i < 8; i++) {
+        const x = ((i * 300 - game.cameraX * 0.05) % (extW + 600)) - 300 + offX;
         const height = 200 + (i % 3) * 80;
         ctx.fillRect(x, canvas.height - height - 100, 40, height + 100);
 
@@ -742,8 +748,8 @@ export default function Game() {
 
       // 3. Middle Parallax Layer: Thicker Trees
       ctx.fillStyle = "#022c22";
-      for (let i = 0; i < 8; i++) {
-        const x = ((i * 220 - game.cameraX * 0.2) % (canvas.width + 400)) - 200;
+      for (let i = 0; i < 10; i++) {
+        const x = ((i * 220 - game.cameraX * 0.2) % (extW + 400)) - 200 + offX;
         const height = 150 + (i % 4) * 50;
         // Tree Trunk
         ctx.fillRect(x, canvas.height - height - 150, 50, height + 150);
@@ -757,8 +763,8 @@ export default function Game() {
 
       // 4. Close Foliage (Foreground Blur)
       ctx.fillStyle = "#01211b";
-      for (let i = 0; i < 10; i++) {
-        const x = ((i * 150 - game.cameraX * 0.4) % (canvas.width + 300)) - 150;
+      for (let i = 0; i < 12; i++) {
+        const x = ((i * 150 - game.cameraX * 0.4) % (extW + 300)) - 150 + offX;
         const height = 80 + (i % 3) * 40;
         ctx.beginPath();
         ctx.ellipse(x + 75, canvas.height - 100, 60, height / 2, 0, 0, Math.PI * 2);
@@ -1495,9 +1501,9 @@ export default function Game() {
       game.frameCount++;
 
       if (game.shake > 0) game.shake *= 0.9;
-      const baseZoom = 0.8;
-      const zoomTarget = p.y < -40 ? Math.max(0.65, baseZoom + p.y / 800) : baseZoom;
-      game.cameraZoom += (zoomTarget - game.cameraZoom) * 0.08;
+      const baseZoom = 1;
+      const zoomTarget = p.y < -50 ? Math.max(0.75, baseZoom + p.y / 600) : baseZoom;
+      game.cameraZoom += (zoomTarget - game.cameraZoom) * 0.05;
 
       // Update Slope Physics
       // Use visual center queries to ignore pits (preventing massive slope spikes)
@@ -1738,15 +1744,21 @@ export default function Game() {
 
         if (!onRamp && !isOverGap) {
           const currentGroundY = getTerrainHeight(p.x + p.width / 2);
-          if (p.y + p.height >= currentGroundY) {
-            p.y = currentGroundY - (p.state === "sliding" ? SLIDE_HEIGHT : PLAYER_HEIGHT);
-            p.vy = 0;
-            if (p.state === "jumping" || p.state === "falling") {
+          const targetY = currentGroundY - (p.state === "sliding" ? SLIDE_HEIGHT : PLAYER_HEIGHT);
+          const playerBottom = p.y + p.height;
+          
+          if (playerBottom >= currentGroundY - 2) {
+            if (p.state === "running" || p.state === "sliding") {
+              p.y = targetY;
+              p.vy = 0;
+            } else if (p.state === "jumping" || p.state === "falling") {
+              p.y = targetY;
+              p.vy = 0;
               p.state = game.keys.down ? "sliding" : "running";
               createParticles(p.x + p.width / 2, p.y + p.height, "#8d6e63", 2);
-              game.shake = 8; // Impact shake
+              game.shake = 8;
             }
-          } else if (p.y > groundY - PLAYER_HEIGHT + 20 && p.state !== "jumping") {
+          } else if (playerBottom < currentGroundY - 15 && p.state !== "jumping") {
             p.state = "falling";
           }
         } else if (isOverGap && p.state !== "swinging") {
@@ -1968,8 +1980,7 @@ export default function Game() {
         const sy = (Math.random() - 0.5) * game.shake;
         ctx.translate(sx, sy);
       }
-      const zoomOffsetY = (1 - game.cameraZoom) * CANVAS_HEIGHT * 0.4;
-      ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - zoomOffsetY);
+      ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
       ctx.scale(game.cameraZoom, game.cameraZoom);
       ctx.translate(-CANVAS_WIDTH / 2, -CANVAS_HEIGHT / 2);
 
