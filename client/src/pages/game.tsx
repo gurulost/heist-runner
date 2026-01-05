@@ -81,7 +81,7 @@ const THE_ABYSS = 2000; // Physics height inside pits (non-grounding)
 const GAP_FLATTEN_RANGE = 120;
 const VINE_WALL_BUFFER = 220;
 const VINE_SPIKE_BUFFER = 260;
-const VINE_GRAB_RADIUS = 55;
+const VINE_GRAB_RADIUS = 70;
 const GLIDE_CHARGE_DISTANCE = 500;
 const GLIDE_CHARGE_SECONDS = 0.5;
 const GLIDE_MAX_DISPLAY_SECONDS = 3;
@@ -258,7 +258,7 @@ export default function Game() {
       o: Math.random() * Math.PI * 2,
     })),
     shake: 0,
-    cameraZoom: 1,
+    cameraZoom: 0.8,
     plane: { // Renamed to Helicopter conceptually
       x: CANVAS_WIDTH + 200,
       y: 100,
@@ -373,7 +373,7 @@ export default function Game() {
     game.glideSeconds = 0;
     game.glideChargeProgress = 0;
     game.nextGlideChargeDistance = GLIDE_CHARGE_DISTANCE;
-    game.cameraZoom = 1;
+    game.cameraZoom = 0.8;
     game.plane = { x: -200, y: 100, vx: 0, state: "hidden", rotorAngle: 0 } as Plane;
     game.checkPointReached = false;
     game.checkPointUsed = false;
@@ -1495,7 +1495,8 @@ export default function Game() {
       game.frameCount++;
 
       if (game.shake > 0) game.shake *= 0.9;
-      const zoomTarget = p.y < -40 ? Math.max(0.7, 1 + p.y / 600) : 1;
+      const baseZoom = 0.8;
+      const zoomTarget = p.y < -40 ? Math.max(0.65, baseZoom + p.y / 800) : baseZoom;
       game.cameraZoom += (zoomTarget - game.cameraZoom) * 0.08;
 
       // Update Slope Physics
@@ -1649,7 +1650,17 @@ export default function Game() {
         }
 
         const playerCenterX = p.x + p.width / 2;
-        const overGap = game.obstacles.some(o => o.type === "gap" && playerCenterX > o.x && playerCenterX < o.x + o.width);
+        const playerLeftX = p.x + 5;
+        const playerRightX = p.x + p.width - 5;
+        
+        const overGap = game.obstacles.some(o => {
+          if (o.type !== "gap") return false;
+          const inGapLeft = playerLeftX > o.x && playerLeftX < o.x + o.width;
+          const inGapRight = playerRightX > o.x && playerRightX < o.x + o.width;
+          const inGapCenter = playerCenterX > o.x && playerCenterX < o.x + o.width;
+          return inGapLeft || inGapRight || inGapCenter;
+        });
+        
         const groundY = getTerrainHeight(playerCenterX);
 
         if (game.keys.down && p.y >= groundY - PLAYER_HEIGHT - 5 && p.state !== "jumping" && !overGap) {
@@ -1716,8 +1727,10 @@ export default function Game() {
             }
           }
           if (obs.type === "gap") {
-            const playerCenterX = p.x + p.width / 2;
-            if (playerCenterX > obs.x && playerCenterX < obs.x + obs.width) {
+            const inGapLeft = playerLeftX > obs.x && playerLeftX < obs.x + obs.width;
+            const inGapRight = playerRightX > obs.x && playerRightX < obs.x + obs.width;
+            const inGapCenter = playerCenterX > obs.x && playerCenterX < obs.x + obs.width;
+            if (inGapLeft || inGapRight || inGapCenter) {
               isOverGap = true;
             }
           }
@@ -1955,7 +1968,8 @@ export default function Game() {
         const sy = (Math.random() - 0.5) * game.shake;
         ctx.translate(sx, sy);
       }
-      ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+      const zoomOffsetY = (1 - game.cameraZoom) * CANVAS_HEIGHT * 0.4;
+      ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - zoomOffsetY);
       ctx.scale(game.cameraZoom, game.cameraZoom);
       ctx.translate(-CANVAS_WIDTH / 2, -CANVAS_HEIGHT / 2);
 
