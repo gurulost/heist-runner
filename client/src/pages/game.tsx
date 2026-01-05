@@ -85,8 +85,8 @@ const VINE_GRAB_RADIUS = 55;
 const GLIDE_CHARGE_DISTANCE = 500;
 const GLIDE_CHARGE_SECONDS = 0.5;
 const GLIDE_MAX_DISPLAY_SECONDS = 3;
-const VICTORY_DISTANCE = 40000;
-const CHECKPOINT_DISTANCE = 20000;
+const VICTORY_DISTANCE = 20000;
+const CHECKPOINT_DISTANCE = 10000;
 
 interface Plane {
   x: number;
@@ -466,6 +466,16 @@ export default function Game() {
         passed: false
       });
 
+      // Flatten terrain around chasm
+      const flattenStart = chasmX - GAP_FLATTEN_RANGE;
+      const flattenEnd = chasmX + width + GAP_FLATTEN_RANGE;
+      game.terrain.forEach((seg: TerrainSegment) => {
+        if (seg.endX > flattenStart && seg.startX < flattenEnd) {
+          seg.startY = BASE_GROUND_Y;
+          seg.endY = BASE_GROUND_Y;
+        }
+      });
+
       const preChasmVineX = chasmX - 140;
       const midChasmVineX = chasmX + width * 0.45;
       spawnVine(preChasmVineX, { force: true, length: 240, angle: -Math.PI / 6 });
@@ -511,6 +521,18 @@ export default function Game() {
       height,
       passed: false,
     });
+
+    // Flatten terrain segments around gaps so pits have flat ground on both sides
+    if (type === "gap") {
+      const flattenStart = obstacleX - GAP_FLATTEN_RANGE;
+      const flattenEnd = obstacleX + width + GAP_FLATTEN_RANGE;
+      game.terrain.forEach((seg: TerrainSegment) => {
+        if (seg.endX > flattenStart && seg.startX < flattenEnd) {
+          seg.startY = BASE_GROUND_Y;
+          seg.endY = BASE_GROUND_Y;
+        }
+      });
+    }
 
     game.lastObstacleX = obstacleX + width;
     if (type === "gap") game.lastVineX = obstacleX;
